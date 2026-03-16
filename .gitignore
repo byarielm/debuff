@@ -1,0 +1,8 @@
+/target
+.env
+web/node_modules/
+web/.next/
+web/out/
+*.key
+data/
+config.toml

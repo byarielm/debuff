@@ -1,0 +1,56 @@
+services:
+  postgres:
+    image: postgres:17
+    profiles: ["postgres"]
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-debuff}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-debuff}
+      POSTGRES_DB: ${POSTGRES_DB:-debuff}
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-debuff}"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  debuff:
+    image: rust:1.93
+    working_dir: /app
+    command: cargo run
+    ports:
+      - "3000:3000"
+    volumes:
+      - .:/app
+      - cargo-registry:/usr/local/cargo/registry
+      - cargo-git:/usr/local/cargo/git
+      - cargo-target:/app/target
+      - debuff-data:/app/data
+    environment:
+      RUST_LOG: debuff=debug,tower_http=debug
+
+  web:
+    image: node:24-alpine
+    working_dir: /app
+    command: sh -c "npm install && npm run dev"
+    ports:
+      - "3001:3001"
+    volumes:
+      - ./web:/app
+      - web-node-modules:/app/node_modules
+    depends_on:
+      debuff:
+        condition: service_started
+    environment:
+      HOSTNAME: ${WEB_HOSTNAME}
+      API_URL: ${API_URL:-http://debuff:3000}
+
+volumes:
+  pgdata:
+  cargo-registry:
+  cargo-git:
+  cargo-target:
+  debuff-data:
+  web-node-modules:

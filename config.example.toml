@@ -1,0 +1,19 @@
+# Debuff configuration
+# Copy this file to config.toml and adjust as needed.
+# All values shown are defaults — uncomment to override.
+
+# [server]
+# host = "0.0.0.0"
+# port = 3000
+# public_url = "http://127.0.0.1:3001"
+# static_dir = "./web/out"
+# session_secret = "change-me-in-production"
+
+# [database]
+# backend = "sqlite"            # "sqlite" or "postgres"
+# url = "sqlite://data/debuff.db?mode=rwc"
+
+# [labeler]
+# did = "did:plc:placeholder"
+# signing_key_path = "/path/to/signing.pem"
+# plc_url = "https://plc.directory"

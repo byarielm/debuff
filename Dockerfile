@@ -1,0 +1,45 @@
+FROM node:22-alpine AS frontend
+
+WORKDIR /app/web
+COPY web/package.json web/package-lock.json ./
+RUN npm ci
+COPY web/ .
+RUN npm run build
+
+FROM rust:1.86 AS builder
+
+WORKDIR /app
+
+# Build dependencies first (cached until Cargo.toml/Cargo.lock change)
+COPY Cargo.toml Cargo.lock ./
+RUN mkdir src && echo "fn main() {}" > src/main.rs && touch src/lib.rs
+ENV SQLX_OFFLINE=true
+RUN cargo build --release && rm -rf src target/release/.fingerprint/debuff-*
+
+# Build application code
+COPY src/ src/
+COPY migrations/postgres/ migrations/postgres/
+COPY migrations/sqlite/ migrations/sqlite/
+RUN cargo build --release
+
+FROM debian:bookworm-slim
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN useradd -r -s /bin/false debuff
+
+COPY --from=builder /app/target/release/debuff /usr/local/bin/debuff
+COPY --from=builder /app/migrations /srv/migrations
+COPY --from=frontend /app/web/out /srv/static
+
+ENV STATIC_DIR=/srv/static
+
+WORKDIR /srv
+
+USER debuff
+
+EXPOSE 3000
+
+ENTRYPOINT ["debuff"]
