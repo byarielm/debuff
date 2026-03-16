@@ -68,15 +68,18 @@ async fn verify_signature(
     let provided_sig =
         hex::decode(hex_digest).map_err(|_| AppError::Unauthorized)?;
 
-    let rows: Vec<(i32, String, String, bool, bool, bool)> = sqlx::query_as(
+    let rows: Vec<(i32, String, String, i32, i32, i32)> = sqlx::query_as(
         "SELECT id, name, secret, auto_accept, auto_label, requires_review \
-         FROM webhook_sources WHERE active = true",
+         FROM webhook_sources WHERE active = 1",
     )
     .fetch_all(&state.db)
     .await
     .map_err(|e| AppError::Internal(format!("failed to fetch webhook sources: {e}")))?;
 
-    for (id, name, secret, auto_accept, auto_label, requires_review) in rows {
+    for (id, name, secret, auto_accept_int, auto_label_int, requires_review_int) in rows {
+        let auto_accept = auto_accept_int != 0;
+        let auto_label = auto_label_int != 0;
+        let requires_review = requires_review_int != 0;
         let mut mac = HmacSha256::new_from_slice(secret.as_bytes())
             .map_err(|e| AppError::Internal(format!("hmac init failed: {e}")))?;
         mac.update(body);
@@ -183,7 +186,7 @@ pub async fn ingest(
         let labels_applied = apply_labels(&state, &payload).await?;
 
         if labels_applied > 0 {
-            sqlx::query("UPDATE reports SET auto_labeled = true WHERE id = ?")
+            sqlx::query("UPDATE reports SET auto_labeled = 1 WHERE id = ?")
                 .bind(report_id)
                 .execute(&state.db)
                 .await

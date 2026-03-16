@@ -203,7 +203,7 @@ pub async fn query_labels(
     _auth: ModeratorAuth,
     Query(params): Query<LabelsQuery>,
 ) -> Result<Json<Vec<LabelResponse>>, AppError> {
-    let rows: Vec<(String, String, Option<String>, String, bool, String, Option<String>, Vec<u8>)> =
+    let rows: Vec<(String, String, Option<String>, String, i32, String, Option<String>, Vec<u8>)> =
         sqlx::query_as(
             "SELECT src, uri, cid, val, neg, cts, exp, sig
              FROM labels
@@ -217,12 +217,12 @@ pub async fn query_labels(
 
     let labels = rows
         .into_iter()
-        .map(|(src, uri, cid, val, neg, cts, exp, sig)| LabelResponse {
+        .map(|(src, uri, cid, val, neg_int, cts, exp, sig)| LabelResponse {
             src,
             uri,
             cid,
             val,
-            neg,
+            neg: neg_int != 0,
             cts: crate::db::parse_dt(&cts),
             exp: exp.as_deref().map(crate::db::parse_dt),
             sig: base64_encode(&sig),

@@ -126,7 +126,7 @@ pub async fn get_definition(
     _auth: ModeratorAuth,
     Path(id): Path<i32>,
 ) -> Result<Json<DefinitionResponse>, AppError> {
-    let row: Option<(i32, String, String, String, String, bool, bool, String)> =
+    let row: Option<(i32, String, String, String, String, i32, i32, String)> =
         sqlx::query_as(
             "SELECT id, identifier, severity, blurs, default_setting, adult_only, builtin, created_at \
              FROM label_definitions WHERE id = ?",
@@ -136,8 +136,11 @@ pub async fn get_definition(
         .await
         .map_err(|e| AppError::Internal(format!("failed to fetch definition: {e}")))?;
 
-    let (def_id, identifier, severity, blurs, default_setting, adult_only, builtin, created_at) =
+    let (def_id, identifier, severity, blurs, default_setting, adult_only_int, builtin_int, created_at) =
         row.ok_or(AppError::NotFound)?;
+
+    let adult_only = adult_only_int != 0;
+    let builtin = builtin_int != 0;
 
     let locale_rows: Vec<(String, String, String)> = sqlx::query_as(
         "SELECT lang, name, description FROM label_definition_locales \
@@ -175,7 +178,7 @@ pub async fn list_definitions(
     State(state): State<AppState>,
     _auth: ModeratorAuth,
 ) -> Result<Json<Vec<DefinitionResponse>>, AppError> {
-    let rows: Vec<(i32, String, String, String, String, bool, bool, String)> =
+    let rows: Vec<(i32, String, String, String, String, i32, i32, String)> =
         sqlx::query_as(
             "SELECT id, identifier, severity, blurs, default_setting, adult_only, builtin, created_at \
              FROM label_definitions ORDER BY id",
@@ -224,15 +227,15 @@ pub async fn list_definitions(
     let definitions: Vec<DefinitionResponse> = rows
         .into_iter()
         .map(
-            |(id, identifier, severity, blurs, default_setting, adult_only, builtin, created_at)| {
+            |(id, identifier, severity, blurs, default_setting, adult_only_int, builtin_int, created_at)| {
                 DefinitionResponse {
                     id,
                     identifier,
                     severity,
                     blurs,
                     default_setting,
-                    adult_only,
-                    builtin,
+                    adult_only: adult_only_int != 0,
+                    builtin: builtin_int != 0,
                     locales: locale_map.remove(&id).unwrap_or_default(),
                     created_at: crate::db::parse_dt(&created_at),
                 }
@@ -336,7 +339,7 @@ pub async fn update_definition(
     Json(body): Json<UpdateDefinitionBody>,
 ) -> Result<Json<DefinitionResponse>, AppError> {
     // Fetch existing definition
-    let row: Option<(i32, String, String, String, String, bool, bool, String)> =
+    let row: Option<(i32, String, String, String, String, i32, i32, String)> =
         sqlx::query_as(
             "SELECT id, identifier, severity, blurs, default_setting, adult_only, builtin, created_at \
              FROM label_definitions WHERE id = ?",
@@ -346,8 +349,11 @@ pub async fn update_definition(
         .await
         .map_err(|e| AppError::Internal(format!("failed to fetch definition: {e}")))?;
 
-    let (def_id, mut identifier, mut severity, mut blurs, mut default_setting, mut adult_only, builtin, created_at) =
+    let (def_id, mut identifier, mut severity, mut blurs, mut default_setting, mut adult_only_int, builtin_int, created_at) =
         row.ok_or(AppError::NotFound)?;
+
+    let builtin = builtin_int != 0;
+    let mut adult_only = adult_only_int != 0;
 
     if builtin {
         return Err(AppError::Forbidden);
@@ -478,14 +484,15 @@ pub async fn delete_definition(
     Path(id): Path<i32>,
 ) -> Result<StatusCode, AppError> {
     // Check if it exists and whether it's builtin
-    let row: Option<(bool,)> =
+    let row: Option<(i32,)> =
         sqlx::query_as("SELECT builtin FROM label_definitions WHERE id = ?")
             .bind(id)
             .fetch_optional(&state.db)
             .await
             .map_err(|e| AppError::Internal(format!("failed to fetch definition: {e}")))?;
 
-    let (builtin,) = row.ok_or(AppError::NotFound)?;
+    let (builtin_int,) = row.ok_or(AppError::NotFound)?;
+    let builtin = builtin_int != 0;
 
     if builtin {
         return Err(AppError::Forbidden);

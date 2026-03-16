@@ -1,4 +1,5 @@
-use axum::extract::{Query, State};
+use axum::extract::State;
+use axum_extra::extract::Query;
 use axum::Json;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
@@ -90,7 +91,7 @@ pub async fn query_labels(
 
     // Rebuild SQL
     let mut sql = String::from(
-        "SELECT seq, src, uri, cid, val, neg, cts, exp, sig FROM labels WHERE neg = false AND (exp IS NULL OR exp > ?) ",
+        "SELECT seq, src, uri, cid, val, neg, cts, exp, sig FROM labels WHERE neg = 0 AND (exp IS NULL OR exp > ?) ",
     );
     binds.push(BindVal::Text(now_str));
 
@@ -137,7 +138,7 @@ pub async fn query_labels(
     binds.push(BindVal::Int(limit));
 
     // Build the sqlx query with dynamic binds
-    let mut query = sqlx::query_as::<_, (i64, String, String, Option<String>, String, bool, String, Option<String>, Vec<u8>)>(&sql);
+    let mut query = sqlx::query_as::<_, (i64, String, String, Option<String>, String, i32, String, Option<String>, Vec<u8>)>(&sql);
 
     for bind in &binds {
         match bind {
@@ -166,7 +167,7 @@ pub async fn query_labels(
             uri,
             cid,
             val,
-            neg,
+            neg: neg != 0,
             cts: crate::db::parse_dt(&cts),
             exp: exp.as_deref().map(crate::db::parse_dt),
             sig: base64_encode(&sig),

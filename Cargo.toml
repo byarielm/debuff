@@ -36,7 +36,12 @@ atrium-common = "0.1"
 atrium-api = { version = "0.25", features = ["agent"] }
 atrium-xrpc = "0.12"
 jose-jwk = { version = "0.1", default-features = false, features = ["p256"] }
-axum-extra = { version = "0.10", features = ["cookie", "cookie-signed", "cookie-key-expansion"] }
+axum-extra = { version = "0.10", features = ["cookie", "cookie-signed", "cookie-key-expansion", "query"] }
 
 [dev-dependencies]
 serial_test = "3"
+wiremock = "0.6"
+paste = "1"
+tempfile = "3"
+futures-util = "0.3"
+cookie = "0.18"

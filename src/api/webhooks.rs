@@ -61,7 +61,7 @@ pub async fn list_webhooks(
         return Err(AppError::Forbidden);
     }
 
-    let rows: Vec<(i32, String, bool, bool, bool, bool, String)> = sqlx::query_as(
+    let rows: Vec<(i32, String, i32, i32, i32, i32, String)> = sqlx::query_as(
         "SELECT id, name, active, auto_accept, auto_label, requires_review, created_at \
          FROM webhook_sources ORDER BY id",
     )
@@ -76,10 +76,10 @@ pub async fn list_webhooks(
                 WebhookSourceResponse {
                     id,
                     name,
-                    active,
-                    auto_accept,
-                    auto_label,
-                    requires_review,
+                    active: active != 0,
+                    auto_accept: auto_accept != 0,
+                    auto_label: auto_label != 0,
+                    requires_review: requires_review != 0,
                     created_at: crate::db::parse_dt(&created_at),
                 }
             },
@@ -105,7 +105,7 @@ pub async fn create_webhook(
 
     let secret = generate_secret();
 
-    let row: (i32, String, String, bool, bool, bool, bool, String) = sqlx::query_as(
+    let row: (i32, String, String, i32, i32, i32, i32, String) = sqlx::query_as(
         "INSERT INTO webhook_sources (name, secret) VALUES (?, ?) \
          RETURNING id, name, secret, active, auto_accept, auto_label, requires_review, created_at",
     )
@@ -121,10 +121,10 @@ pub async fn create_webhook(
             id: row.0,
             name: row.1,
             secret: row.2,
-            active: row.3,
-            auto_accept: row.4,
-            auto_label: row.5,
-            requires_review: row.6,
+            active: row.3 != 0,
+            auto_accept: row.4 != 0,
+            auto_label: row.5 != 0,
+            requires_review: row.6 != 0,
             created_at: crate::db::parse_dt(&row.7),
         }),
     ))
@@ -141,7 +141,7 @@ pub async fn update_webhook(
         return Err(AppError::Forbidden);
     }
 
-    let row: Option<(i32, String, bool, bool, bool, bool, String)> = sqlx::query_as(
+    let row: Option<(i32, String, i32, i32, i32, i32, String)> = sqlx::query_as(
         "SELECT id, name, active, auto_accept, auto_label, requires_review, created_at \
          FROM webhook_sources WHERE id = ?",
     )
@@ -150,8 +150,13 @@ pub async fn update_webhook(
     .await
     .map_err(|e| AppError::Internal(format!("failed to fetch webhook source: {e}")))?;
 
-    let (ws_id, name, mut active, mut auto_accept, mut auto_label, mut requires_review, created_at) =
+    let (ws_id, name, active_int, auto_accept_int, auto_label_int, requires_review_int, created_at) =
         row.ok_or(AppError::NotFound)?;
+
+    let mut active = active_int != 0;
+    let mut auto_accept = auto_accept_int != 0;
+    let mut auto_label = auto_label_int != 0;
+    let mut requires_review = requires_review_int != 0;
 
     if let Some(v) = body.active {
         active = v;

@@ -132,7 +132,7 @@ async fn send_historical(
     state: &AppState,
     cursor: i64,
 ) -> Result<(), ()> {
-    let rows: Vec<(i64, String, String, Option<String>, String, bool, String, Option<String>, Vec<u8>)> =
+    let rows: Vec<(i64, String, String, Option<String>, String, i32, String, Option<String>, Vec<u8>)> =
         sqlx::query_as(
             "SELECT seq, src, uri, cid, val, neg, cts, exp, sig
              FROM labels
@@ -180,7 +180,7 @@ async fn send_historical(
             uri: row.2,
             cid: row.3,
             val: row.4,
-            neg: row.5,
+            neg: row.5 != 0,
             cts: row.6,
             exp: row.7,
             sig: row.8,
@@ -203,7 +203,7 @@ async fn send_label_by_seq(
     state: &AppState,
     seq: i64,
 ) -> Result<(), ()> {
-    let row: Option<(i64, String, String, Option<String>, String, bool, String, Option<String>, Vec<u8>)> =
+    let row: Option<(i64, String, String, Option<String>, String, i32, String, Option<String>, Vec<u8>)> =
         sqlx::query_as(
             "SELECT seq, src, uri, cid, val, neg, cts, exp, sig
              FROM labels
@@ -228,7 +228,7 @@ async fn send_label_by_seq(
         uri: row.2,
         cid: row.3,
         val: row.4,
-        neg: row.5,
+        neg: row.5 != 0,
         cts: row.6,
         exp: row.7,
         sig: row.8,

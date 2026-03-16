@@ -115,7 +115,7 @@ pub async fn get_account(
         return Err(AppError::BadRequest("invalid DID format".into()));
     }
 
-    let rows: Vec<(String, String, String, bool, String, Option<String>, Vec<u8>)> =
+    let rows: Vec<(String, String, String, i32, String, Option<String>, Vec<u8>)> =
         sqlx::query_as(
             "SELECT src, uri, val, neg, cts, exp, sig
              FROM labels
@@ -133,7 +133,7 @@ pub async fn get_account(
             src: src.clone(),
             uri: uri.clone(),
             val: val.clone(),
-            neg: *neg,
+            neg: *neg != 0,
             cts: crate::db::parse_dt(cts),
             exp: exp.as_deref().map(crate::db::parse_dt),
             sig: base64_encode(sig),

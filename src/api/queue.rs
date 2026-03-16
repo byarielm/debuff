@@ -180,7 +180,7 @@ pub async fn list_queue(
         String,
         Option<String>,
         i32,
-        bool,
+        i32,
         String,
         String,
         i64,
@@ -225,7 +225,7 @@ pub async fn list_queue(
             status: row.7,
             assigned_to: row.8,
             priority: row.9,
-            auto_labeled: row.10,
+            auto_labeled: row.10 != 0,
             created_at: crate::db::parse_dt(&row.11),
             updated_at: crate::db::parse_dt(&row.12),
             label_count: row.13,
@@ -258,7 +258,7 @@ pub async fn get_queue_item(
         String,
         Option<String>,
         i32,
-        bool,
+        i32,
         String,
         String,
     )> = sqlx::query_as(
@@ -303,7 +303,7 @@ pub async fn get_queue_item(
         .or(report.3.as_deref())
         .unwrap_or("");
 
-    let label_rows: Vec<(i64, String, bool, String)> = sqlx::query_as(
+    let label_rows: Vec<(i64, String, i32, String)> = sqlx::query_as(
         "SELECT id, val, neg, cts FROM labels WHERE uri = ? ORDER BY cts",
     )
     .bind(subject_key)
@@ -316,7 +316,7 @@ pub async fn get_queue_item(
         .map(|(id, val, neg, created_at)| SubjectLabel {
             id,
             val,
-            neg,
+            neg: neg != 0,
             created_at: crate::db::parse_dt(&created_at),
         })
         .collect();
@@ -332,7 +332,7 @@ pub async fn get_queue_item(
         status: report.7,
         assigned_to: report.8,
         priority: report.9,
-        auto_labeled: report.10,
+        auto_labeled: report.10 != 0,
         notes,
         labels,
         created_at: crate::db::parse_dt(&report.11),
