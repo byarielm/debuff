@@ -13,6 +13,7 @@ interface AuthContextType {
   role: string | null
   login: (handle: string) => Promise<void>
   logout: () => Promise<void>
+  refresh: () => Promise<void>
   loading: boolean
   error: string | null
 }
@@ -22,6 +23,7 @@ const AuthContext = createContext<AuthContextType>({
   role: null,
   login: async () => {},
   logout: async () => {},
+  refresh: async () => {},
   loading: true,
   error: null,
 })
@@ -76,6 +78,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   }, [])
 
+  const refresh = useCallback(async () => {
+    try {
+      const res = await fetch("/auth/me", { credentials: "include" })
+      if (res.ok) {
+        const data = await res.json()
+        setDid(data.did)
+        setRole(data.role ?? null)
+      }
+    } catch {
+      // Best-effort
+    }
+  }, [])
+
   const logout = useCallback(async () => {
     try {
       await fetch("/auth/logout", {
@@ -98,6 +113,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         role,
         login,
         logout,
+        refresh,
         loading,
         error,
       }}

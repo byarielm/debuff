@@ -121,6 +121,7 @@ impl TestApp {
             signer: Arc::new(signer),
             oauth: Arc::new(oauth_client),
             cookie_key,
+            setup_labeler_did: Arc::new(tokio::sync::Mutex::new(None)),
         };
 
         let router = debuff::server::router(state.clone());

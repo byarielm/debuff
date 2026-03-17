@@ -78,7 +78,7 @@ async fn main() {
         atrium_oauth::OAuthClient::new(OAuthClientConfig {
             client_metadata: AtprotoLocalhostClientMetadata {
                 redirect_uris: Some(vec![callback_url]),
-                scopes: Some(vec![Scope::Known(KnownScope::Atproto)]),
+                scopes: Some(vec![Scope::Known(KnownScope::Atproto), Scope::Known(KnownScope::TransitionGeneric), Scope::Unknown("identity:*".into())]),
             },
             keys: None,
             state_store: DbStateStore::new(db.clone()),
@@ -94,7 +94,7 @@ async fn main() {
                 redirect_uris: vec![callback_url],
                 token_endpoint_auth_method: AuthMethod::None,
                 grant_types: vec![GrantType::AuthorizationCode, GrantType::RefreshToken],
-                scopes: vec![Scope::Known(KnownScope::Atproto)],
+                scopes: vec![Scope::Known(KnownScope::Atproto), Scope::Known(KnownScope::TransitionGeneric), Scope::Unknown("identity:*".into())],
                 jwks_uri: None,
                 token_endpoint_auth_signing_alg: None,
             },
@@ -125,6 +125,7 @@ async fn main() {
         signer: Arc::new(signer),
         oauth: Arc::new(oauth_client),
         cookie_key,
+        setup_labeler_did: Arc::new(tokio::sync::Mutex::new(None)),
     };
 
     let app = router(state);

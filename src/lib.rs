@@ -14,6 +14,7 @@ use signing::LabelSigner;
 use sqlx::AnyPool;
 use std::sync::Arc;
 use tokio::sync::broadcast;
+use tokio::sync::Mutex;
 
 use atrium_identity::did::CommonDidResolver;
 use atrium_identity::handle::AtprotoHandleResolver;
@@ -36,6 +37,7 @@ pub struct AppState {
     pub signer: Arc<LabelSigner>,
     pub oauth: Arc<DebuffOAuthClient>,
     pub cookie_key: axum_extra::extract::cookie::Key,
+    pub setup_labeler_did: Arc<Mutex<Option<String>>>,
 }
 
 impl axum::extract::FromRef<AppState> for axum_extra::extract::cookie::Key {

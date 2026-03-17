@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect } from "react"
+import { useEffect, useState } from "react"
 import { useRouter } from "next/navigation"
 
 import { useAuth } from "@/lib/auth-context"
@@ -14,14 +14,36 @@ export default function DashboardLayout({
 }) {
   const { did } = useAuth()
   const router = useRouter()
+  const [setupChecked, setSetupChecked] = useState(false)
 
   useEffect(() => {
     if (!did) {
       router.replace("/login")
+      return
     }
+
+    async function checkSetup() {
+      try {
+        const res = await fetch("/api/setup/status", {
+          credentials: "include",
+        })
+        if (res.ok) {
+          const data = await res.json()
+          if (!data.setup_complete) {
+            router.replace("/setup")
+            return
+          }
+        }
+      } catch {
+        // If setup check fails, allow dashboard access
+      }
+      setSetupChecked(true)
+    }
+
+    checkSetup()
   }, [did, router])
 
-  if (!did) return null
+  if (!did || !setupChecked) return null
 
   return (
     <SidebarProvider

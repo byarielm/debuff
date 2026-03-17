@@ -76,8 +76,22 @@ async fn callback(
         cookie.set_secure(true);
     }
 
+    // If this DID is not a moderator, redirect to /setup (likely a labeler OAuth during setup)
+    let is_moderator: Option<(i32,)> =
+        sqlx::query_as("SELECT 1 FROM moderators WHERE did = ?")
+            .bind(did.as_ref())
+            .fetch_optional(&state.db)
+            .await
+            .unwrap_or(None);
+
+    let redirect = if is_moderator.is_some() {
+        "/dashboard/queue/"
+    } else {
+        "/setup"
+    };
+
     let jar = jar.add(cookie);
-    Ok((jar, Redirect::to("/dashboard/queue/")))
+    Ok((jar, Redirect::to(redirect)))
 }
 
 async fn logout(

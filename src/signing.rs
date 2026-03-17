@@ -57,6 +57,27 @@ impl LabelSigner {
         Ok(signature.to_bytes().to_vec())
     }
 
+    /// Export the signing key as a PEM-encoded PKCS#8 string.
+    pub fn to_pem(&self) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
+        use p256::pkcs8::EncodePrivateKey;
+        let pem = self.key.to_pkcs8_pem(p256::pkcs8::LineEnding::LF)?;
+        Ok(pem.to_string())
+    }
+
+    /// Get the public key as a did:key multibase string (base58btc, P-256 multicodec prefix 0x1200).
+    pub fn public_key_multibase(&self) -> String {
+        use p256::ecdsa::VerifyingKey;
+        let verifying_key = VerifyingKey::from(&self.key);
+        let compressed = verifying_key.to_encoded_point(true);
+        let compressed_bytes = compressed.as_bytes();
+
+        // P-256 multicodec prefix: 0x1200 as varint = [0x80, 0x24]
+        let mut prefixed = vec![0x80, 0x24];
+        prefixed.extend_from_slice(compressed_bytes);
+
+        multibase::encode(multibase::Base::Base58Btc, &prefixed)
+    }
+
     /// Get the public key bytes (for registering in DID document)
     pub fn public_key_bytes(&self) -> Vec<u8> {
         use p256::ecdsa::VerifyingKey;

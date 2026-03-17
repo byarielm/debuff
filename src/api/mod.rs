@@ -4,6 +4,7 @@ pub mod ingest;
 pub mod labels;
 pub mod moderators;
 pub mod queue;
+pub mod setup;
 pub mod types;
 pub mod webhooks;
 
@@ -75,4 +76,5 @@ pub fn routes() -> Router<AppState> {
             patch(webhooks::update_webhook).delete(webhooks::delete_webhook),
         )
         .route("/ingest", post(ingest::ingest))
+        .nest("/setup", setup::routes())
 }

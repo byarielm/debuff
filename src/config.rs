@@ -1,4 +1,5 @@
 use serde::Deserialize;
+use std::io::Write;
 use std::path::PathBuf;
 
 #[derive(Clone, Debug, Deserialize)]
@@ -54,7 +55,7 @@ fn default_host() -> String { "0.0.0.0".into() }
 fn default_port() -> u16 { 3000 }
 fn default_public_url() -> String { "http://127.0.0.1:3001".into() }
 fn default_static_dir() -> String { "./web/out".into() }
-fn default_session_secret() -> String { "change-me-in-production".into() }
+fn default_session_secret() -> String { "change-me-in-production-not-secure".into() }
 fn default_backend() -> DatabaseBackend { DatabaseBackend::Sqlite }
 fn default_database_url() -> String { "sqlite://data/debuff.db?mode=rwc".into() }
 fn default_labeler_did() -> String { "did:plc:placeholder".into() }
@@ -102,6 +103,12 @@ impl Default for Config {
 }
 
 impl Config {
+    pub fn config_path() -> PathBuf {
+        std::env::var("DEBUFF_CONFIG")
+            .map(PathBuf::from)
+            .unwrap_or_else(|_| PathBuf::from("./config.toml"))
+    }
+
     pub fn load() -> Self {
         let path = std::env::var("DEBUFF_CONFIG")
             .map(PathBuf::from)
@@ -120,4 +127,46 @@ impl Config {
             Config::default()
         }
     }
+}
+
+/// Update specific fields in config.toml, preserving formatting.
+/// Creates the file if it doesn't exist.
+pub fn update_config_file(updates: &[(&str, &str)]) -> Result<(), String> {
+    let path = Config::config_path();
+
+    let contents = if path.exists() {
+        std::fs::read_to_string(&path)
+            .map_err(|e| format!("Failed to read {}: {e}", path.display()))?
+    } else {
+        String::new()
+    };
+
+    let mut doc = contents.parse::<toml_edit::DocumentMut>()
+        .map_err(|e| format!("Failed to parse config: {e}"))?;
+
+    for (dotted_key, value) in updates {
+        let parts: Vec<&str> = dotted_key.split('.').collect();
+        if parts.len() == 2 {
+            let table = parts[0];
+            let key = parts[1];
+            if !doc.contains_table(table) {
+                doc[table] = toml_edit::Item::Table(toml_edit::Table::new());
+            }
+            doc[table][key] = toml_edit::value(value.to_string());
+        }
+    }
+
+    if let Some(parent) = path.parent() {
+        if !parent.as_os_str().is_empty() {
+            std::fs::create_dir_all(parent)
+                .map_err(|e| format!("Failed to create dir: {e}"))?;
+        }
+    }
+
+    let mut file = std::fs::File::create(&path)
+        .map_err(|e| format!("Failed to create {}: {e}", path.display()))?;
+    file.write_all(doc.to_string().as_bytes())
+        .map_err(|e| format!("Failed to write {}: {e}", path.display()))?;
+
+    Ok(())
 }

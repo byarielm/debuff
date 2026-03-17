@@ -1,3 +1,7 @@
+use atrium_api::agent::Agent;
+use atrium_api::com::atproto::repo::{get_record, put_record};
+use atrium_api::types::string::Did;
+use atrium_api::types::TryIntoUnknown;
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
 use axum::Json;
@@ -315,6 +319,8 @@ pub async fn create_definition(
         .await
         .map_err(|e| AppError::Internal(format!("transaction commit failed: {e}")))?;
 
+    sync_service_record(&state).await;
+
     Ok((
         StatusCode::CREATED,
         Json(DefinitionResponse {
@@ -349,7 +355,7 @@ pub async fn update_definition(
         .await
         .map_err(|e| AppError::Internal(format!("failed to fetch definition: {e}")))?;
 
-    let (def_id, mut identifier, mut severity, mut blurs, mut default_setting, mut adult_only_int, builtin_int, created_at) =
+    let (def_id, mut identifier, mut severity, mut blurs, mut default_setting, adult_only_int, builtin_int, created_at) =
         row.ok_or(AppError::NotFound)?;
 
     let builtin = builtin_int != 0;
@@ -464,6 +470,8 @@ pub async fn update_definition(
         .await
         .map_err(|e| AppError::Internal(format!("transaction commit failed: {e}")))?;
 
+    sync_service_record(&state).await;
+
     Ok(Json(DefinitionResponse {
         id: def_id,
         identifier,
@@ -505,5 +513,209 @@ pub async fn delete_definition(
         .await
         .map_err(|e| AppError::Internal(format!("failed to delete definition: {e}")))?;
 
+    sync_service_record(&state).await;
+
     Ok(StatusCode::NO_CONTENT)
+}
+
+/// Sync all label definitions from the database to the ATProto labeler service record.
+/// Runs as a background best-effort operation — failures are logged but don't block the caller.
+async fn sync_service_record(state: &AppState) {
+    let state = state.clone();
+    tokio::spawn(async move {
+        if let Err(e) = sync_service_record_inner(&state).await {
+            tracing::error!("Failed to sync labeler service record: {e}");
+        }
+    });
+}
+
+async fn sync_service_record_inner(state: &AppState) -> Result<(), String> {
+    let labeler_did: String = get_labeler_did(state).await?;
+
+    let did: Did = labeler_did
+        .parse()
+        .map_err(|e| format!("Invalid labeler DID: {e}"))?;
+
+    let session = state
+        .oauth
+        .restore(&did)
+        .await
+        .map_err(|e| format!("Failed to restore labeler OAuth session: {e}"))?;
+    let agent = Agent::new(session);
+
+    // Fetch current service record to preserve createdAt and other fields
+    let existing = agent
+        .api
+        .com
+        .atproto
+        .repo
+        .get_record(
+            get_record::ParametersData {
+                repo: did.clone().into(),
+                collection: "app.bsky.labeler.service"
+                    .parse()
+                    .map_err(|e| format!("Invalid NSID: {e}"))?,
+                rkey: "self".parse().map_err(|e| format!("Invalid rkey: {e}"))?,
+                cid: None,
+            }
+            .into(),
+        )
+        .await
+        .ok();
+
+    // Extract the existing record as JSON to preserve fields we don't manage
+    let existing_json: serde_json::Value = match &existing {
+        Some(resp) => serde_json::to_value(&resp.value)
+            .unwrap_or_else(|_| serde_json::json!({})),
+        None => serde_json::json!({}),
+    };
+
+    // Fetch all definitions with locales from the database
+    let rows: Vec<(i32, String, String, String, String, i32)> = sqlx::query_as(
+        "SELECT id, identifier, severity, blurs, default_setting, adult_only \
+         FROM label_definitions ORDER BY id",
+    )
+    .fetch_all(&state.db)
+    .await
+    .map_err(|e| format!("Failed to fetch definitions: {e}"))?;
+
+    let def_ids: Vec<i32> = rows.iter().map(|r| r.0).collect();
+
+    let locale_rows: Vec<(i32, String, String, String)> = if def_ids.is_empty() {
+        vec![]
+    } else {
+        let placeholders: Vec<&str> = def_ids.iter().map(|_| "?").collect();
+        let sql = format!(
+            "SELECT definition_id, lang, name, description \
+             FROM label_definition_locales \
+             WHERE definition_id IN ({}) \
+             ORDER BY definition_id, lang",
+            placeholders.join(", ")
+        );
+        let mut query = sqlx::query_as::<_, (i32, String, String, String)>(&sql);
+        for id in &def_ids {
+            query = query.bind(id);
+        }
+        query
+            .fetch_all(&state.db)
+            .await
+            .map_err(|e| format!("Failed to fetch locales: {e}"))?
+    };
+
+    // Group locales by definition_id
+    let mut locale_map: std::collections::HashMap<i32, Vec<serde_json::Value>> =
+        std::collections::HashMap::new();
+    for (def_id, lang, name, description) in locale_rows {
+        locale_map.entry(def_id).or_default().push(serde_json::json!({
+            "lang": lang,
+            "name": name,
+            "description": description,
+        }));
+    }
+
+    // Build labelValues (string array) and labelValueDefinitions (full objects)
+    let mut label_values: Vec<String> = Vec::new();
+    let mut label_value_definitions: Vec<serde_json::Value> = Vec::new();
+
+    for (id, identifier, severity, blurs, default_setting, adult_only_int) in &rows {
+        label_values.push(identifier.clone());
+
+        let mut def = serde_json::json!({
+            "identifier": identifier,
+            "severity": severity,
+            "blurs": blurs,
+            "locales": locale_map.get(id).cloned().unwrap_or_default(),
+        });
+
+        if default_setting != "warn" {
+            def["defaultSetting"] = serde_json::json!(default_setting);
+        }
+        if *adult_only_int != 0 {
+            def["adultOnly"] = serde_json::json!(true);
+        }
+
+        label_value_definitions.push(def);
+    }
+
+    // Build updated record, preserving existing fields
+    let now = crate::db::now_rfc3339();
+    let created_at = existing_json["createdAt"]
+        .as_str()
+        .unwrap_or(&now);
+
+    let mut record = serde_json::json!({
+        "$type": "app.bsky.labeler.service",
+        "createdAt": created_at,
+        "policies": {
+            "labelValues": label_values,
+            "labelValueDefinitions": label_value_definitions,
+        }
+    });
+
+    // Preserve optional fields from the existing record
+    if let Some(subject_types) = existing_json.get("subjectTypes") {
+        record["subjectTypes"] = subject_types.clone();
+    }
+    if let Some(subject_collections) = existing_json.get("subjectCollections") {
+        record["subjectCollections"] = subject_collections.clone();
+    }
+    if let Some(reason_types) = existing_json.get("reasonTypes") {
+        record["reasonTypes"] = reason_types.clone();
+    }
+
+    let record_unknown = record
+        .try_into_unknown()
+        .map_err(|e| format!("Failed to build record: {e}"))?;
+
+    agent
+        .api
+        .com
+        .atproto
+        .repo
+        .put_record(
+            put_record::InputData {
+                repo: did.into(),
+                collection: "app.bsky.labeler.service"
+                    .parse()
+                    .map_err(|e| format!("Invalid NSID: {e}"))?,
+                rkey: "self"
+                    .parse()
+                    .map_err(|e| format!("Invalid rkey: {e}"))?,
+                record: record_unknown,
+                swap_commit: None,
+                swap_record: None,
+                validate: None,
+            }
+            .into(),
+        )
+        .await
+        .map_err(|e| format!("putRecord failed: {e}"))?;
+
+    tracing::info!("Synced labeler service record with {} label definitions", rows.len());
+    Ok(())
+}
+
+/// Get the labeler DID, checking setup mutex first, then in-memory config, then config file on disk.
+async fn get_labeler_did(state: &AppState) -> Result<String, String> {
+    // Check the in-memory setup mutex (set during setup flow)
+    let guard = state.setup_labeler_did.lock().await;
+    if let Some(did) = guard.clone() {
+        return Ok(did);
+    }
+    drop(guard);
+
+    // Check the in-memory config (set at startup)
+    let did = &state.config.labeler.did;
+    if !did.is_empty() && did != "did:plc:placeholder" {
+        return Ok(did.clone());
+    }
+
+    // Re-read config file in case it was updated after startup (e.g. by setup)
+    let fresh = crate::config::Config::load();
+    let did = &fresh.labeler.did;
+    if !did.is_empty() && did != "did:plc:placeholder" {
+        return Ok(did.clone());
+    }
+
+    Err("Labeler DID not configured".into())
 }
