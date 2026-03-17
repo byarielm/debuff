@@ -58,6 +58,9 @@ export function DataTable<TData>({
                     className={cn(header.column.getIsPinned() && "bg-inherit")}
                     style={{
                       ...getColumnPinningStyle({ column: header.column }),
+                      width: header.column.columnDef.maxSize === header.column.columnDef.minSize
+                        ? header.column.getSize()
+                        : undefined,
                     }}
                   >
                     {header.isPlaceholder
@@ -84,6 +87,9 @@ export function DataTable<TData>({
                       className={cn(cell.column.getIsPinned() && "bg-inherit")}
                       style={{
                         ...getColumnPinningStyle({ column: cell.column }),
+                        width: cell.column.columnDef.maxSize === cell.column.columnDef.minSize
+                          ? cell.column.getSize()
+                          : undefined,
                       }}
                     >
                       {flexRender(
