@@ -67,10 +67,7 @@ dual_db_test!(create_report_strong_ref, |backend| async move {
 
     assert_eq!(status, StatusCode::CREATED);
     assert_eq!(resp["reportedBy"], reporter_did);
-    assert_eq!(
-        resp["subject"]["$type"],
-        "com.atproto.repo.strongRef"
-    );
+    assert_eq!(resp["subject"]["$type"], "com.atproto.repo.strongRef");
     assert_eq!(
         resp["subject"]["uri"],
         "at://did:plc:targetuser/app.bsky.feed.post/abc123"
@@ -278,10 +275,8 @@ dual_db_test!(subscribe_labels_receives_live_label, |backend| async move {
 
     // Apply a label via the REST API first
     let http = reqwest::Client::new();
-    let payload = common::fixtures::apply_labels(
-        "at://did:plc:test/app.bsky.feed.post/wstest",
-        &["ws-val"],
-    );
+    let payload =
+        common::fixtures::apply_labels("at://did:plc:test/app.bsky.feed.post/wstest", &["ws-val"]);
     let resp = http
         .post(format!("http://{addr}/api/labels"))
         .header("cookie", &admin_cookie)

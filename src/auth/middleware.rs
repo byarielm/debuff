@@ -83,9 +83,7 @@ impl FromRequestParts<AppState> for ModeratorAuth {
             .bind(&did)
             .fetch_optional(&mut *tx)
             .await
-            .map_err(|e| {
-                AppError::Internal(format!("auto-bootstrap moderator failed: {e}"))
-            })?;
+            .map_err(|e| AppError::Internal(format!("auto-bootstrap moderator failed: {e}")))?;
 
             tx.commit()
                 .await
@@ -93,10 +91,7 @@ impl FromRequestParts<AppState> for ModeratorAuth {
 
             if let Some((mod_did, role)) = row {
                 tracing::info!(did = %mod_did, "auto-bootstrapped first moderator as admin");
-                return Ok(ModeratorAuth {
-                    did: mod_did,
-                    role,
-                });
+                return Ok(ModeratorAuth { did: mod_did, role });
             }
         }
 
@@ -122,9 +117,6 @@ impl FromRequestParts<AppState> for ModeratorAuth {
                 .await;
         });
 
-        Ok(ModeratorAuth {
-            did: mod_did,
-            role,
-        })
+        Ok(ModeratorAuth { did: mod_did, role })
     }
 }

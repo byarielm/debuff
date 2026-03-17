@@ -4,20 +4,29 @@ use axum::http::StatusCode;
 use common::macros::dual_db_test;
 use serde_json::json;
 
-dual_db_test!(apply_label_returns_201_with_signature, |backend| async move {
-    let app = common::app::TestApp::new(backend).await;
-    app.seed_definition("test-label").await;
+dual_db_test!(
+    apply_label_returns_201_with_signature,
+    |backend| async move {
+        let app = common::app::TestApp::new(backend).await;
+        app.seed_definition("test-label").await;
 
-    let payload = common::fixtures::apply_labels("at://did:plc:test/app.bsky.feed.post/abc", &["test-label"]);
-    let (status, body) = app.post_authed("/api/labels", &payload).await;
+        let payload = common::fixtures::apply_labels(
+            "at://did:plc:test/app.bsky.feed.post/abc",
+            &["test-label"],
+        );
+        let (status, body) = app.post_authed("/api/labels", &payload).await;
 
-    assert_eq!(status, StatusCode::CREATED);
-    let labels = body.as_array().expect("expected array");
-    assert_eq!(labels.len(), 1);
-    assert_eq!(labels[0]["val"], "test-label");
-    assert_eq!(labels[0]["neg"], false);
-    assert!(labels[0]["sig"].as_str().is_some_and(|s| !s.is_empty()), "expected non-empty signature");
-});
+        assert_eq!(status, StatusCode::CREATED);
+        let labels = body.as_array().expect("expected array");
+        assert_eq!(labels.len(), 1);
+        assert_eq!(labels[0]["val"], "test-label");
+        assert_eq!(labels[0]["neg"], false);
+        assert!(
+            labels[0]["sig"].as_str().is_some_and(|s| !s.is_empty()),
+            "expected non-empty signature"
+        );
+    }
+);
 
 dual_db_test!(query_labels_by_uri, |backend| async move {
     let app = common::app::TestApp::new(backend).await;
@@ -37,31 +46,41 @@ dual_db_test!(query_labels_by_uri, |backend| async move {
     assert_eq!(labels[0]["uri"], uri);
 });
 
-dual_db_test!(negate_label_removes_from_active_query, |backend| async move {
-    let app = common::app::TestApp::new(backend).await;
-    app.seed_definition("neg-label").await;
+dual_db_test!(
+    negate_label_removes_from_active_query,
+    |backend| async move {
+        let app = common::app::TestApp::new(backend).await;
+        app.seed_definition("neg-label").await;
 
-    let uri = "at://did:plc:test/app.bsky.feed.post/neg1";
-    let apply = common::fixtures::apply_labels(uri, &["neg-label"]);
-    let (status, _) = app.post_authed("/api/labels", &apply).await;
-    assert_eq!(status, StatusCode::CREATED);
+        let uri = "at://did:plc:test/app.bsky.feed.post/neg1";
+        let apply = common::fixtures::apply_labels(uri, &["neg-label"]);
+        let (status, _) = app.post_authed("/api/labels", &apply).await;
+        assert_eq!(status, StatusCode::CREATED);
 
-    // Negate the label
-    let negate = common::fixtures::negate_labels(uri, &["neg-label"]);
-    let (status, _) = app.delete_authed_with_body("/api/labels", &negate).await;
-    assert_eq!(status, StatusCode::OK);
+        // Negate the label
+        let negate = common::fixtures::negate_labels(uri, &["neg-label"]);
+        let (status, _) = app.delete_authed_with_body("/api/labels", &negate).await;
+        assert_eq!(status, StatusCode::OK);
 
-    // Query should return no active labels
-    let (status, body) = app.get_authed(&format!("/api/labels?uri={uri}")).await;
-    assert_eq!(status, StatusCode::OK);
-    let labels = body.as_array().expect("expected array");
-    assert_eq!(labels.len(), 0, "negated label should not appear in active query");
-});
+        // Query should return no active labels
+        let (status, body) = app.get_authed(&format!("/api/labels?uri={uri}")).await;
+        assert_eq!(status, StatusCode::OK);
+        let labels = body.as_array().expect("expected array");
+        assert_eq!(
+            labels.len(),
+            0,
+            "negated label should not appear in active query"
+        );
+    }
+);
 
 dual_db_test!(unknown_val_returns_400, |backend| async move {
     let app = common::app::TestApp::new(backend).await;
 
-    let payload = common::fixtures::apply_labels("at://did:plc:test/app.bsky.feed.post/x", &["nonexistent-label"]);
+    let payload = common::fixtures::apply_labels(
+        "at://did:plc:test/app.bsky.feed.post/x",
+        &["nonexistent-label"],
+    );
     let (status, _) = app.post_authed("/api/labels", &payload).await;
 
     assert_eq!(status, StatusCode::BAD_REQUEST);

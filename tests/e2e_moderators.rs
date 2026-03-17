@@ -92,9 +92,7 @@ dual_db_test!(remove_moderator_returns_204, |backend| async move {
     let (status, _) = app.post_authed("/api/moderators", &payload).await;
     assert_eq!(status, StatusCode::CREATED);
 
-    let (status, _) = app
-        .delete_authed("/api/moderators/did:plc:removeme")
-        .await;
+    let (status, _) = app.delete_authed("/api/moderators/did:plc:removeme").await;
 
     assert_eq!(status, StatusCode::NO_CONTENT);
 });
@@ -111,9 +109,7 @@ dual_db_test!(cannot_remove_self, |backend| async move {
 dual_db_test!(remove_nonexistent_returns_404, |backend| async move {
     let app = common::app::TestApp::new(backend).await;
 
-    let (status, _) = app
-        .delete_authed("/api/moderators/did:plc:ghost")
-        .await;
+    let (status, _) = app.delete_authed("/api/moderators/did:plc:ghost").await;
 
     assert_eq!(status, StatusCode::NOT_FOUND);
 });
@@ -141,7 +137,8 @@ dual_db_test!(first_user_auto_bootstraps_as_admin, |backend| async move {
     assert_eq!(status, StatusCode::OK);
     let mods = body.as_array().expect("expected array");
     assert!(
-        mods.iter().any(|m| m["did"] == "did:plc:bootstrap" && m["role"] == "admin"),
+        mods.iter()
+            .any(|m| m["did"] == "did:plc:bootstrap" && m["role"] == "admin"),
         "bootstrap user should be auto-created as admin"
     );
 });

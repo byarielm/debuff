@@ -140,7 +140,7 @@ export function getLabelDefinition(id: number) {
 }
 
 export function createLabelDefinition(
-  body: Omit<LabelDefinition, "id" | "created_at" | "builtin">
+  body: Omit<LabelDefinition, "id" | "created_at">
 ) {
   return apiFetch<LabelDefinition>("/api/definitions", {
     method: "POST",
@@ -150,7 +150,7 @@ export function createLabelDefinition(
 
 export function updateLabelDefinition(
   id: number,
-  body: Partial<Omit<LabelDefinition, "id" | "created_at" | "builtin">>
+  body: Partial<Omit<LabelDefinition, "id" | "created_at">>
 ) {
   return apiFetch<LabelDefinition>(`/api/definitions/${id}`, {
     method: "PATCH",

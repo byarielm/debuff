@@ -127,35 +127,38 @@ async fn handle_socket(mut socket: WebSocket, state: AppState, cursor: Option<i6
 // Historical replay
 // ---------------------------------------------------------------------------
 
-async fn send_historical(
-    socket: &mut WebSocket,
-    state: &AppState,
-    cursor: i64,
-) -> Result<(), ()> {
-    let rows: Vec<(i64, String, String, Option<String>, String, i32, String, Option<String>, Vec<u8>)> =
-        sqlx::query_as(
-            "SELECT seq, src, uri, cid, val, neg, cts, exp, sig
+async fn send_historical(socket: &mut WebSocket, state: &AppState, cursor: i64) -> Result<(), ()> {
+    let rows: Vec<(
+        i64,
+        String,
+        String,
+        Option<String>,
+        String,
+        i32,
+        String,
+        Option<String>,
+        Vec<u8>,
+    )> = sqlx::query_as(
+        "SELECT seq, src, uri, cid, val, neg, cts, exp, sig
              FROM labels
              WHERE seq > ?
              ORDER BY seq ASC",
-        )
-        .bind(cursor)
-        .fetch_all(&state.db)
-        .await
-        .map_err(|e| {
-            warn!("subscribeLabels: failed to query historical labels: {e}");
-        })?;
+    )
+    .bind(cursor)
+    .fetch_all(&state.db)
+    .await
+    .map_err(|e| {
+        warn!("subscribeLabels: failed to query historical labels: {e}");
+    })?;
 
     // If cursor was provided but no rows found, check if cursor is too old.
     if rows.is_empty() {
-        let min_seq: Option<(Option<i64>,)> = sqlx::query_as(
-            "SELECT MIN(seq) FROM labels",
-        )
-        .fetch_optional(&state.db)
-        .await
-        .map_err(|e| {
-            warn!("subscribeLabels: failed to check min seq: {e}");
-        })?;
+        let min_seq: Option<(Option<i64>,)> = sqlx::query_as("SELECT MIN(seq) FROM labels")
+            .fetch_optional(&state.db)
+            .await
+            .map_err(|e| {
+                warn!("subscribeLabels: failed to check min seq: {e}");
+            })?;
 
         if let Some((Some(min),)) = min_seq {
             if cursor < min {
@@ -198,23 +201,28 @@ async fn send_historical(
 // Send a single label by seq
 // ---------------------------------------------------------------------------
 
-async fn send_label_by_seq(
-    socket: &mut WebSocket,
-    state: &AppState,
-    seq: i64,
-) -> Result<(), ()> {
-    let row: Option<(i64, String, String, Option<String>, String, i32, String, Option<String>, Vec<u8>)> =
-        sqlx::query_as(
-            "SELECT seq, src, uri, cid, val, neg, cts, exp, sig
+async fn send_label_by_seq(socket: &mut WebSocket, state: &AppState, seq: i64) -> Result<(), ()> {
+    let row: Option<(
+        i64,
+        String,
+        String,
+        Option<String>,
+        String,
+        i32,
+        String,
+        Option<String>,
+        Vec<u8>,
+    )> = sqlx::query_as(
+        "SELECT seq, src, uri, cid, val, neg, cts, exp, sig
              FROM labels
              WHERE seq = ?",
-        )
-        .bind(seq)
-        .fetch_optional(&state.db)
-        .await
-        .map_err(|e| {
-            warn!("subscribeLabels: failed to query label seq={seq}: {e}");
-        })?;
+    )
+    .bind(seq)
+    .fetch_optional(&state.db)
+    .await
+    .map_err(|e| {
+        warn!("subscribeLabels: failed to query label seq={seq}: {e}");
+    })?;
 
     let Some(row) = row else {
         warn!("subscribeLabels: label seq={seq} not found in database");
@@ -247,7 +255,10 @@ async fn send_label_by_seq(
 // ---------------------------------------------------------------------------
 
 fn encode_label_frame(label: &LabelRow) -> Vec<u8> {
-    let header = DataFrameHeader { op: 1, t: "#labels" };
+    let header = DataFrameHeader {
+        op: 1,
+        t: "#labels",
+    };
 
     let label_cbor = LabelCbor {
         ver: label.ver,

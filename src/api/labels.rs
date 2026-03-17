@@ -1,13 +1,13 @@
+use axum::Json;
 use axum::extract::{Query, State};
 use axum::http::StatusCode;
-use axum::Json;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
+use crate::AppState;
 use crate::auth::ModeratorAuth;
 use crate::error::AppError;
 use crate::signing::UnsignedLabel;
-use crate::AppState;
 
 // ---------------------------------------------------------------------------
 // Request / response types
@@ -61,13 +61,12 @@ pub async fn apply_labels(
 
     // Validate all vals exist in label_definitions
     for val in &body.vals {
-        let exists: Option<(i32,)> = sqlx::query_as(
-            "SELECT id FROM label_definitions WHERE identifier = ?",
-        )
-        .bind(val)
-        .fetch_optional(&state.db)
-        .await
-        .map_err(|e| AppError::Internal(format!("failed to check definition: {e}")))?;
+        let exists: Option<(i32,)> =
+            sqlx::query_as("SELECT id FROM label_definitions WHERE identifier = ?")
+                .bind(val)
+                .fetch_optional(&state.db)
+                .await
+                .map_err(|e| AppError::Internal(format!("failed to check definition: {e}")))?;
 
         if exists.is_none() {
             return Err(AppError::BadRequest(format!(
@@ -203,30 +202,40 @@ pub async fn query_labels(
     _auth: ModeratorAuth,
     Query(params): Query<LabelsQuery>,
 ) -> Result<Json<Vec<LabelResponse>>, AppError> {
-    let rows: Vec<(String, String, Option<String>, String, i32, String, Option<String>, Vec<u8>)> =
-        sqlx::query_as(
-            "SELECT src, uri, cid, val, neg, cts, exp, sig
+    let rows: Vec<(
+        String,
+        String,
+        Option<String>,
+        String,
+        i32,
+        String,
+        Option<String>,
+        Vec<u8>,
+    )> = sqlx::query_as(
+        "SELECT src, uri, cid, val, neg, cts, exp, sig
              FROM labels
              WHERE uri = ? AND neg = false
              ORDER BY cts",
-        )
-        .bind(&params.uri)
-        .fetch_all(&state.db)
-        .await
-        .map_err(|e| AppError::Internal(format!("failed to query labels: {e}")))?;
+    )
+    .bind(&params.uri)
+    .fetch_all(&state.db)
+    .await
+    .map_err(|e| AppError::Internal(format!("failed to query labels: {e}")))?;
 
     let labels = rows
         .into_iter()
-        .map(|(src, uri, cid, val, neg_int, cts, exp, sig)| LabelResponse {
-            src,
-            uri,
-            cid,
-            val,
-            neg: neg_int != 0,
-            cts: crate::db::parse_dt(&cts),
-            exp: exp.as_deref().map(crate::db::parse_dt),
-            sig: base64_encode(&sig),
-        })
+        .map(
+            |(src, uri, cid, val, neg_int, cts, exp, sig)| LabelResponse {
+                src,
+                uri,
+                cid,
+                val,
+                neg: neg_int != 0,
+                cts: crate::db::parse_dt(&cts),
+                exp: exp.as_deref().map(crate::db::parse_dt),
+                sig: base64_encode(&sig),
+            },
+        )
         .collect();
 
     Ok(Json(labels))

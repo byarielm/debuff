@@ -1,6 +1,6 @@
-use p256::ecdsa::{SigningKey, Signature, signature::Signer};
-use sha2::{Sha256, Digest};
+use p256::ecdsa::{Signature, SigningKey, signature::Signer};
 use serde::Serialize;
+use sha2::{Digest, Sha256};
 
 /// Represents a label before signing (all fields except sig)
 #[derive(Serialize)]
@@ -50,7 +50,10 @@ impl LabelSigner {
     /// 1. Encode as DAG-CBOR (deterministic)
     /// 2. SHA-256 hash the bytes
     /// 3. Sign the hash with P-256 ECDSA
-    pub fn sign_label(&self, label: &UnsignedLabel) -> Result<Vec<u8>, Box<dyn std::error::Error + Send + Sync>> {
+    pub fn sign_label(
+        &self,
+        label: &UnsignedLabel,
+    ) -> Result<Vec<u8>, Box<dyn std::error::Error + Send + Sync>> {
         let cbor_bytes = serde_ipld_dagcbor::to_vec(label)?;
         let hash = Sha256::digest(&cbor_bytes);
         let signature: Signature = self.key.sign(&hash);

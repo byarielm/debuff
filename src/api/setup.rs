@@ -2,19 +2,19 @@ use atrium_api::agent::Agent;
 use atrium_api::com::atproto::identity::sign_plc_operation;
 use atrium_api::com::atproto::identity::submit_plc_operation;
 use atrium_api::com::atproto::repo::put_record;
-use atrium_api::types::string::Did;
 use atrium_api::types::TryIntoUnknown;
+use atrium_api::types::string::Did;
 use axum::extract::State;
 use axum::routing::{get, post};
 use axum::{Json, Router};
 use axum_extra::extract::cookie::{Cookie, SignedCookieJar};
 use serde::{Deserialize, Serialize};
 
-use crate::auth::{ModeratorAuth, COOKIE_NAME};
+use crate::AppState;
+use crate::auth::{COOKIE_NAME, ModeratorAuth};
 use crate::config::update_config_file;
 use crate::error::AppError;
 use crate::signing::LabelSigner;
-use crate::AppState;
 
 pub fn routes() -> Router<AppState> {
     Router::new()
@@ -88,7 +88,10 @@ fn find_service_endpoint(did_doc: &serde_json::Value, fragment: &str) -> Option<
         .and_then(|s| s["serviceEndpoint"].as_str().map(String::from))
 }
 
-async fn restore_labeler_agent(state: &AppState, did_str: &str) -> Result<Agent<impl atrium_api::agent::SessionManager>, AppError> {
+async fn restore_labeler_agent(
+    state: &AppState,
+    did_str: &str,
+) -> Result<Agent<impl atrium_api::agent::SessionManager>, AppError> {
     let did = Did::new(did_str.to_string())
         .map_err(|e| AppError::Internal(format!("Invalid DID: {e}")))?;
     let session = state
@@ -123,9 +126,7 @@ async fn status(State(state): State<AppState>) -> Result<Json<StatusResponse>, A
     // Check in-memory mutex first (set during setup), then fall back to config
     let mutex_did = state.setup_labeler_did.lock().await.clone();
     let did_from_config = &state.config.labeler.did;
-    let did = mutex_did
-        .as_deref()
-        .unwrap_or(did_from_config.as_str());
+    let did = mutex_did.as_deref().unwrap_or(did_from_config.as_str());
     let labeler_did_configured = !did.is_empty() && did != "did:plc:placeholder";
 
     let mut plc_configured = false;
@@ -140,9 +141,9 @@ async fn status(State(state): State<AppState>) -> Result<Json<StatusResponse>, A
                 .as_array()
                 .map(|arr| {
                     arr.iter().any(|s| {
-                        s["id"]
-                            .as_str()
-                            .is_some_and(|id| id == "#atproto_labeler" || id.ends_with("#atproto_labeler"))
+                        s["id"].as_str().is_some_and(|id| {
+                            id == "#atproto_labeler" || id.ends_with("#atproto_labeler")
+                        })
                     })
                 })
                 .unwrap_or(false);
@@ -151,9 +152,9 @@ async fn status(State(state): State<AppState>) -> Result<Json<StatusResponse>, A
                 .as_array()
                 .map(|arr| {
                     arr.iter().any(|v| {
-                        v["id"]
-                            .as_str()
-                            .is_some_and(|id| id == "#atproto_label" || id.ends_with("#atproto_label"))
+                        v["id"].as_str().is_some_and(|id| {
+                            id == "#atproto_label" || id.ends_with("#atproto_label")
+                        })
                     })
                 })
                 .unwrap_or(false);
@@ -177,7 +178,11 @@ async fn status(State(state): State<AppState>) -> Result<Json<StatusResponse>, A
     let setup_complete = labeler_did_configured && plc_configured && service_record_configured;
 
     Ok(Json(StatusResponse {
-        labeler_did: if labeler_did_configured { Some(did.to_string()) } else { None },
+        labeler_did: if labeler_did_configured {
+            Some(did.to_string())
+        } else {
+            None
+        },
         labeler_did_configured,
         plc_configured,
         service_record_configured,
@@ -210,7 +215,7 @@ async fn set_labeler_did(
     let did = if body.identifier.starts_with("did:") {
         body.identifier.clone()
     } else {
-        resolve_handle_to_did(&state.http, &body.identifier).await?
+        resolve_handle_to_did(&state, &body.identifier).await?
     };
 
     let mut config_updates: Vec<(&str, String)> = vec![("labeler.did".into(), did.clone())];
@@ -228,7 +233,10 @@ async fn set_labeler_did(
         std::fs::write("data/signing_key.pem", &pem)
             .map_err(|e| AppError::Internal(format!("Failed to write signing key: {e}")))?;
 
-        config_updates.push(("labeler.signing_key_path".into(), "data/signing_key.pem".into()));
+        config_updates.push((
+            "labeler.signing_key_path".into(),
+            "data/signing_key.pem".into(),
+        ));
         true
     } else {
         false
@@ -254,38 +262,21 @@ async fn set_labeler_did(
     }))
 }
 
-async fn resolve_handle_to_did(
-    http: &reqwest::Client,
-    handle: &str,
-) -> Result<String, AppError> {
-    // Try DNS DOH resolution first
-    let dns_url = format!(
-        "https://dns.google/resolve?name=_atproto.{}&type=TXT",
-        handle
-    );
-    if let Ok(resp) = http
-        .get(&dns_url)
-        .header("Accept", "application/dns-json")
-        .send()
-        .await
-    {
-        if let Ok(json) = resp.json::<serde_json::Value>().await {
-            if let Some(answers) = json["Answer"].as_array() {
-                for answer in answers {
-                    if let Some(data) = answer["data"].as_str() {
-                        let cleaned = data.trim_matches('"');
-                        if let Some(did) = cleaned.strip_prefix("did=") {
-                            return Ok(did.to_string());
-                        }
-                    }
-                }
+async fn resolve_handle_to_did(state: &AppState, handle: &str) -> Result<String, AppError> {
+    // Try DNS TXT resolution first
+    if let Ok(records) = state.dns.lookup_txt(&format!("_atproto.{handle}")).await {
+        for record in records {
+            let cleaned = record.trim_matches('"');
+            if let Some(did) = cleaned.strip_prefix("did=") {
+                return Ok(did.to_string());
             }
         }
     }
 
     // Fallback: well-known
     let wellknown_url = format!("https://{}/.well-known/atproto-did", handle);
-    let resp = http
+    let resp = state
+        .http
         .get(&wellknown_url)
         .send()
         .await
@@ -379,12 +370,11 @@ async fn labeler_auth_confirm(
 ) -> Result<(SignedCookieJar, Json<LabelerAuthConfirmResponse>), AppError> {
     // No ModeratorAuth here — the cookie currently has the labeler's DID (not a moderator).
     // Instead, verify the restore_did is an admin moderator.
-    let role: Option<(String,)> =
-        sqlx::query_as("SELECT role FROM moderators WHERE did = ?")
-            .bind(&body.restore_did)
-            .fetch_optional(&state.db)
-            .await
-            .map_err(|e| AppError::Internal(format!("Failed to verify admin: {e}")))?;
+    let role: Option<(String,)> = sqlx::query_as("SELECT role FROM moderators WHERE did = ?")
+        .bind(&body.restore_did)
+        .fetch_optional(&state.db)
+        .await
+        .map_err(|e| AppError::Internal(format!("Failed to verify admin: {e}")))?;
 
     match role {
         Some((r,)) if r == "admin" => {}
@@ -392,12 +382,11 @@ async fn labeler_auth_confirm(
     }
 
     // Verify the DID has an OAuth session in the database
-    let has_session: Option<(i32,)> =
-        sqlx::query_as("SELECT 1 FROM oauth_sessions WHERE did = ?")
-            .bind(&body.did)
-            .fetch_optional(&state.db)
-            .await
-            .map_err(|e| AppError::Internal(format!("Failed to query oauth session: {e}")))?;
+    let has_session: Option<(i32,)> = sqlx::query_as("SELECT 1 FROM oauth_sessions WHERE did = ?")
+        .bind(&body.did)
+        .fetch_optional(&state.db)
+        .await
+        .map_err(|e| AppError::Internal(format!("Failed to query oauth session: {e}")))?;
 
     if has_session.is_none() {
         return Err(AppError::BadRequest(
@@ -523,8 +512,14 @@ async fn plc_submit(
         .map_err(|e| AppError::Internal(format!("Failed to build services: {e}")))?;
 
     // Merge existing verification methods with new atproto_label
-    let mut vm_map = last_op["verificationMethods"].as_object().cloned().unwrap_or_default();
-    vm_map.insert("atproto_label".into(), serde_json::json!(format!("did:key:{multibase_key}")));
+    let mut vm_map = last_op["verificationMethods"]
+        .as_object()
+        .cloned()
+        .unwrap_or_default();
+    vm_map.insert(
+        "atproto_label".into(),
+        serde_json::json!(format!("did:key:{multibase_key}")),
+    );
     let verification_methods = serde_json::Value::Object(vm_map)
         .try_into_unknown()
         .map_err(|e| AppError::Internal(format!("Failed to build verification methods: {e}")))?;
@@ -535,13 +530,16 @@ async fn plc_submit(
         .com
         .atproto
         .identity
-        .sign_plc_operation(sign_plc_operation::InputData {
-            token: Some(body.token),
-            services: Some(services),
-            verification_methods: Some(verification_methods),
-            also_known_as: Some(also_known_as),
-            rotation_keys: Some(rotation_keys),
-        }.into())
+        .sign_plc_operation(
+            sign_plc_operation::InputData {
+                token: Some(body.token),
+                services: Some(services),
+                verification_methods: Some(verification_methods),
+                also_known_as: Some(also_known_as),
+                rotation_keys: Some(rotation_keys),
+            }
+            .into(),
+        )
         .await
         .map_err(|e| AppError::Internal(format!("signPlcOperation failed: {e}")))?;
 
@@ -551,9 +549,12 @@ async fn plc_submit(
         .com
         .atproto
         .identity
-        .submit_plc_operation(submit_plc_operation::InputData {
-            operation: sign_result.operation.clone(),
-        }.into())
+        .submit_plc_operation(
+            submit_plc_operation::InputData {
+                operation: sign_result.operation.clone(),
+            }
+            .into(),
+        )
         .await
         .map_err(|e| AppError::Internal(format!("submitPlcOperation failed: {e}")))?;
 
@@ -619,15 +620,24 @@ async fn create_record(
         .com
         .atproto
         .repo
-        .put_record(put_record::InputData {
-            repo: did.parse().map_err(|e| AppError::Internal(format!("Invalid repo: {e}")))?,
-            collection: "app.bsky.labeler.service".parse().map_err(|e| AppError::Internal(format!("Invalid NSID: {e}")))?,
-            rkey: "self".parse().map_err(|e| AppError::Internal(format!("Invalid rkey: {e}")))?,
-            record: record_unknown,
-            swap_commit: None,
-            swap_record: None,
-            validate: None,
-        }.into())
+        .put_record(
+            put_record::InputData {
+                repo: did
+                    .parse()
+                    .map_err(|e| AppError::Internal(format!("Invalid repo: {e}")))?,
+                collection: "app.bsky.labeler.service"
+                    .parse()
+                    .map_err(|e| AppError::Internal(format!("Invalid NSID: {e}")))?,
+                rkey: "self"
+                    .parse()
+                    .map_err(|e| AppError::Internal(format!("Invalid rkey: {e}")))?,
+                record: record_unknown,
+                swap_commit: None,
+                swap_record: None,
+                validate: None,
+            }
+            .into(),
+        )
         .await
         .map_err(|e| AppError::Internal(format!("putRecord failed: {e}")))?;
 
@@ -677,48 +687,44 @@ async fn resolve_nsid(
     State(state): State<AppState>,
     axum::extract::Query(query): axum::extract::Query<ResolveNsidQuery>,
 ) -> Json<ResolveNsidResponse> {
-    let description = resolve_nsid_description(&state.http, &query.nsid).await;
+    let description = resolve_nsid_description(&state, &query.nsid).await;
     Json(ResolveNsidResponse {
         nsid: query.nsid,
         description,
     })
 }
 
-async fn resolve_nsid_description(http: &reqwest::Client, nsid: &str) -> Option<String> {
+async fn resolve_nsid_description(state: &AppState, nsid: &str) -> Option<String> {
     // Parse NSID authority: "app.bsky.feed.post" → authority "app.bsky" → domain "bsky.app"
     let parts: Vec<&str> = nsid.split('.').collect();
     if parts.len() < 3 {
         return None;
     }
     let domain = format!("{}.{}", parts[1], parts[0]);
+    let http = &state.http;
 
-    // DNS TXT lookup via DoH for _lexicon.{domain}
-    let dns_url = format!(
-        "https://dns.google/resolve?name=_lexicon.{}&type=TXT",
-        domain
-    );
-    let dns_resp = http
-        .get(&dns_url)
-        .header("Accept", "application/dns-json")
-        .send()
+    // DNS TXT lookup for _lexicon.{domain}
+    let records = state
+        .dns
+        .lookup_txt(&format!("_lexicon.{domain}"))
         .await
         .ok()?;
-    let dns_data: serde_json::Value = dns_resp.json().await.ok()?;
-
-    let did = dns_data["Answer"]
-        .as_array()?
-        .iter()
-        .filter_map(|a| a["data"].as_str())
-        .find_map(|data| {
-            let cleaned = data.trim_matches('"');
-            cleaned.strip_prefix("did=").map(String::from)
-        })?;
+    let did = records.iter().find_map(|record| {
+        let cleaned = record.trim_matches('"');
+        cleaned.strip_prefix("did=").map(String::from)
+    })?;
 
     // Resolve DID to find PDS (handle both did:plc and did:web)
     let did_doc = if did.starts_with("did:web:") {
         let web_domain = did.strip_prefix("did:web:")?;
         let url = format!("https://{}/.well-known/did.json", web_domain);
-        http.get(&url).send().await.ok()?.json::<serde_json::Value>().await.ok()?
+        http.get(&url)
+            .send()
+            .await
+            .ok()?
+            .json::<serde_json::Value>()
+            .await
+            .ok()?
     } else {
         resolve_did_document(http, "https://plc.directory", &did)
             .await

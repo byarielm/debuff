@@ -1,11 +1,11 @@
+use axum::Json;
 use axum::extract::State;
 use axum_extra::extract::Query;
-use axum::Json;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
-use crate::error::AppError;
 use crate::AppState;
+use crate::error::AppError;
 
 // ---------------------------------------------------------------------------
 // Request / response types
@@ -73,9 +73,10 @@ pub async fn query_labels(
 
     // Parse cursor
     let cursor_seq: Option<i64> = match &params.cursor {
-        Some(c) => Some(c.parse::<i64>().map_err(|_| {
-            AppError::BadRequest("invalid cursor".into())
-        })?),
+        Some(c) => Some(
+            c.parse::<i64>()
+                .map_err(|_| AppError::BadRequest("invalid cursor".into()))?,
+        ),
         None => None,
     };
 
@@ -138,7 +139,20 @@ pub async fn query_labels(
     binds.push(BindVal::Int(limit));
 
     // Build the sqlx query with dynamic binds
-    let mut query = sqlx::query_as::<_, (i64, String, String, Option<String>, String, i32, String, Option<String>, Vec<u8>)>(&sql);
+    let mut query = sqlx::query_as::<
+        _,
+        (
+            i64,
+            String,
+            String,
+            Option<String>,
+            String,
+            i32,
+            String,
+            Option<String>,
+            Vec<u8>,
+        ),
+    >(&sql);
 
     for bind in &binds {
         match bind {
@@ -161,17 +175,19 @@ pub async fn query_labels(
 
     let labels = rows
         .into_iter()
-        .map(|(_seq, src, uri, cid, val, neg, cts, exp, sig)| LabelEntry {
-            ver: 1,
-            src,
-            uri,
-            cid,
-            val,
-            neg: neg != 0,
-            cts: crate::db::parse_dt(&cts),
-            exp: exp.as_deref().map(crate::db::parse_dt),
-            sig: base64_encode(&sig),
-        })
+        .map(
+            |(_seq, src, uri, cid, val, neg, cts, exp, sig)| LabelEntry {
+                ver: 1,
+                src,
+                uri,
+                cid,
+                val,
+                neg: neg != 0,
+                cts: crate::db::parse_dt(&cts),
+                exp: exp.as_deref().map(crate::db::parse_dt),
+                sig: base64_encode(&sig),
+            },
+        )
         .collect();
 
     Ok(Json(QueryLabelsResponse { cursor, labels }))

@@ -36,15 +36,8 @@ export function LabelsTable({ definitions, isAdmin }: LabelsTableProps) {
         header: ({ column }) => (
           <DataTableColumnHeader column={column} label="Identifier" />
         ),
-        cell: ({ getValue, row }) => (
-          <div className="flex items-center gap-2">
-            <code className="text-sm">{getValue<string>()}</code>
-            {row.original.builtin && (
-              <Badge variant="secondary" className="text-xs">
-                Built-in
-              </Badge>
-            )}
-          </div>
+        cell: ({ getValue }) => (
+          <code className="text-sm">{getValue<string>()}</code>
         ),
       },
       {
@@ -96,21 +89,20 @@ export function LabelsTable({ definitions, isAdmin }: LabelsTableProps) {
       {
         id: "actions",
         header: () => null,
-        cell: ({ row }) =>
-          !row.original.builtin ? (
-            <Button
-              variant="ghost"
-              size="icon"
-              className="size-8"
-              title="Edit definition"
-              aria-label="Edit definition"
-              asChild
-            >
-              <Link href={`/dashboard/settings/labels/${row.original.id}`}>
-                <Pencil className="size-4" />
-              </Link>
-            </Button>
-          ) : null,
+        cell: ({ row }) => (
+          <Button
+            variant="ghost"
+            size="icon"
+            className="size-8"
+            title="Edit definition"
+            aria-label="Edit definition"
+            asChild
+          >
+            <Link href={`/dashboard/settings/labels/${row.original.id}`}>
+              <Pencil className="size-4" />
+            </Link>
+          </Button>
+        ),
         size: 48,
         enableSorting: false,
         enableHiding: false,

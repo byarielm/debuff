@@ -1,20 +1,20 @@
 use std::sync::Arc;
 
 use tokio::sync::broadcast;
-use tracing_subscriber::{fmt, EnvFilter};
+use tracing_subscriber::{EnvFilter, fmt};
 
+use debuff::AppState;
 use debuff::auth::oauth_store::{DbSessionStore, DbStateStore};
 use debuff::config::Config;
+use debuff::dns::NativeDnsResolver;
 use debuff::server::router;
 use debuff::signing::LabelSigner;
-use debuff::AppState;
 
 use atrium_identity::did::{CommonDidResolver, CommonDidResolverConfig};
 use atrium_identity::handle::{AtprotoHandleResolver, AtprotoHandleResolverConfig};
-use atrium_identity::handle::{DohDnsTxtResolver, DohDnsTxtResolverConfig};
 use atrium_oauth::{
-    AtprotoClientMetadata, AtprotoLocalhostClientMetadata, AuthMethod, GrantType, KnownScope, Scope,
-    DefaultHttpClient, OAuthClientConfig, OAuthResolverConfig,
+    AtprotoClientMetadata, AtprotoLocalhostClientMetadata, AuthMethod, DefaultHttpClient,
+    GrantType, KnownScope, OAuthClientConfig, OAuthResolverConfig, Scope,
 };
 
 #[tokio::main]
@@ -45,9 +45,13 @@ async fn main() {
 
     let (label_tx, _) = broadcast::channel::<i64>(1024);
     let http = reqwest::Client::new();
+    let dns = NativeDnsResolver::new();
 
     // Build atrium-oauth client
-    let callback_url = format!("{}/auth/callback", config.server.public_url.trim_end_matches('/'));
+    let callback_url = format!(
+        "{}/auth/callback",
+        config.server.public_url.trim_end_matches('/')
+    );
     let atrium_http = Arc::new(DefaultHttpClient::default());
 
     let did_resolver = CommonDidResolver::new(CommonDidResolverConfig {
@@ -56,10 +60,7 @@ async fn main() {
     });
 
     let handle_resolver = AtprotoHandleResolver::new(AtprotoHandleResolverConfig {
-        dns_txt_resolver: DohDnsTxtResolver::new(DohDnsTxtResolverConfig {
-            service_url: "https://dns.google/dns-query".into(),
-            http_client: Arc::clone(&atrium_http),
-        }),
+        dns_txt_resolver: dns.clone(),
         http_client: Arc::clone(&atrium_http),
     });
 
@@ -78,7 +79,11 @@ async fn main() {
         atrium_oauth::OAuthClient::new(OAuthClientConfig {
             client_metadata: AtprotoLocalhostClientMetadata {
                 redirect_uris: Some(vec![callback_url]),
-                scopes: Some(vec![Scope::Known(KnownScope::Atproto), Scope::Known(KnownScope::TransitionGeneric), Scope::Unknown("identity:*".into())]),
+                scopes: Some(vec![
+                    Scope::Known(KnownScope::Atproto),
+                    Scope::Known(KnownScope::TransitionGeneric),
+                    Scope::Unknown("identity:*".into()),
+                ]),
             },
             keys: None,
             state_store: DbStateStore::new(db.clone()),
@@ -89,12 +94,19 @@ async fn main() {
     } else {
         atrium_oauth::OAuthClient::new(OAuthClientConfig {
             client_metadata: AtprotoClientMetadata {
-                client_id: format!("{}/oauth/client-metadata.json", config.server.public_url.trim_end_matches('/')),
+                client_id: format!(
+                    "{}/oauth/client-metadata.json",
+                    config.server.public_url.trim_end_matches('/')
+                ),
                 client_uri: Some(config.server.public_url.clone()),
                 redirect_uris: vec![callback_url],
                 token_endpoint_auth_method: AuthMethod::None,
                 grant_types: vec![GrantType::AuthorizationCode, GrantType::RefreshToken],
-                scopes: vec![Scope::Known(KnownScope::Atproto), Scope::Known(KnownScope::TransitionGeneric), Scope::Unknown("identity:*".into())],
+                scopes: vec![
+                    Scope::Known(KnownScope::Atproto),
+                    Scope::Known(KnownScope::TransitionGeneric),
+                    Scope::Unknown("identity:*".into()),
+                ],
                 jwks_uri: None,
                 token_endpoint_auth_signing_alg: None,
             },
@@ -113,14 +125,14 @@ async fn main() {
         );
     }
 
-    let cookie_key = axum_extra::extract::cookie::Key::derive_from(
-        config.server.session_secret.as_bytes(),
-    );
+    let cookie_key =
+        axum_extra::extract::cookie::Key::derive_from(config.server.session_secret.as_bytes());
 
     let state = AppState {
         config: config.clone(),
         db,
         http,
+        dns,
         label_broadcast: label_tx,
         signer: Arc::new(signer),
         oauth: Arc::new(oauth_client),

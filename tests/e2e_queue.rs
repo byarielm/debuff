@@ -21,10 +21,18 @@ dual_db_test!(list_empty_queue, |backend| async move {
 dual_db_test!(list_queue_with_seeded_reports, |backend| async move {
     let app = common::app::TestApp::new(backend).await;
 
-    app.seed_report("at://did:plc:alice/app.bsky.feed.post/1", "did:plc:alice", "pending")
-        .await;
-    app.seed_report("at://did:plc:bob/app.bsky.feed.post/2", "did:plc:bob", "pending")
-        .await;
+    app.seed_report(
+        "at://did:plc:alice/app.bsky.feed.post/1",
+        "did:plc:alice",
+        "pending",
+    )
+    .await;
+    app.seed_report(
+        "at://did:plc:bob/app.bsky.feed.post/2",
+        "did:plc:bob",
+        "pending",
+    )
+    .await;
 
     let (status, body) = app.get_authed("/api/queue").await;
 
@@ -36,8 +44,10 @@ dual_db_test!(list_queue_with_seeded_reports, |backend| async move {
 dual_db_test!(list_queue_filter_by_status, |backend| async move {
     let app = common::app::TestApp::new(backend).await;
 
-    app.seed_report("at://did:plc:a/post/1", "did:plc:a", "pending").await;
-    app.seed_report("at://did:plc:b/post/2", "did:plc:b", "resolved").await;
+    app.seed_report("at://did:plc:a/post/1", "did:plc:a", "pending")
+        .await;
+    app.seed_report("at://did:plc:b/post/2", "did:plc:b", "resolved")
+        .await;
 
     let (status, body) = app.get_authed("/api/queue?status=pending").await;
 
@@ -86,7 +96,10 @@ dual_db_test!(update_report_status, |backend| async move {
         .await;
 
     let (status, body) = app
-        .patch_authed(&format!("/api/queue/{id}"), &json!({ "status": "resolved" }))
+        .patch_authed(
+            &format!("/api/queue/{id}"),
+            &json!({ "status": "resolved" }),
+        )
         .await;
 
     assert_eq!(status, StatusCode::OK);
@@ -202,15 +215,18 @@ dual_db_test!(empty_note_returns_400, |backend| async move {
     assert_eq!(status, StatusCode::BAD_REQUEST);
 });
 
-dual_db_test!(note_on_nonexistent_report_returns_404, |backend| async move {
-    let app = common::app::TestApp::new(backend).await;
+dual_db_test!(
+    note_on_nonexistent_report_returns_404,
+    |backend| async move {
+        let app = common::app::TestApp::new(backend).await;
 
-    let (status, _) = app
-        .post_authed("/api/queue/999999/notes", &json!({ "content": "hello" }))
-        .await;
+        let (status, _) = app
+            .post_authed("/api/queue/999999/notes", &json!({ "content": "hello" }))
+            .await;
 
-    assert_eq!(status, StatusCode::NOT_FOUND);
-});
+        assert_eq!(status, StatusCode::NOT_FOUND);
+    }
+);
 
 // ---------------------------------------------------------------------------
 // No auth

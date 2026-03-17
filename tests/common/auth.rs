@@ -1,5 +1,5 @@
-use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
-use p256::ecdsa::{signature::Signer, Signature, SigningKey};
+use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
+use p256::ecdsa::{Signature, SigningKey, signature::Signer};
 
 /// A test keypair for creating service auth JWTs.
 pub struct TestKeypair {

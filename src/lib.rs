@@ -2,6 +2,7 @@ pub mod api;
 pub mod auth;
 pub mod config;
 pub mod db;
+pub mod dns;
 pub mod error;
 pub mod server;
 pub mod signing;
@@ -9,23 +10,23 @@ pub mod xrpc;
 
 use auth::oauth_store::{DbSessionStore, DbStateStore};
 use config::Config;
+use dns::NativeDnsResolver;
 use reqwest::Client;
 use signing::LabelSigner;
 use sqlx::AnyPool;
 use std::sync::Arc;
-use tokio::sync::broadcast;
 use tokio::sync::Mutex;
+use tokio::sync::broadcast;
 
 use atrium_identity::did::CommonDidResolver;
 use atrium_identity::handle::AtprotoHandleResolver;
-use atrium_identity::handle::DohDnsTxtResolver;
 use atrium_oauth::DefaultHttpClient;
 
 pub type DebuffOAuthClient = atrium_oauth::OAuthClient<
     DbStateStore,
     DbSessionStore,
     CommonDidResolver<DefaultHttpClient>,
-    AtprotoHandleResolver<DohDnsTxtResolver<DefaultHttpClient>, DefaultHttpClient>,
+    AtprotoHandleResolver<NativeDnsResolver, DefaultHttpClient>,
 >;
 
 #[derive(Clone)]
@@ -33,6 +34,7 @@ pub struct AppState {
     pub config: Config,
     pub db: AnyPool,
     pub http: Client,
+    pub dns: NativeDnsResolver,
     pub label_broadcast: broadcast::Sender<i64>,
     pub signer: Arc<LabelSigner>,
     pub oauth: Arc<DebuffOAuthClient>,

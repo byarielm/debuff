@@ -1,12 +1,12 @@
+use axum::Json;
 use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
-use axum::Json;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
+use crate::AppState;
 use crate::auth::ModeratorAuth;
 use crate::error::AppError;
-use crate::AppState;
 
 // ---------------------------------------------------------------------------
 // Types
@@ -169,22 +169,25 @@ pub async fn list_queue(
     );
 
     // Build the query and bind values in order
-    let mut query = sqlx::query_as::<_, (
-        i64,
-        Option<String>,
-        Option<String>,
-        Option<String>,
-        String,
-        String,
-        String,
-        String,
-        Option<String>,
-        i32,
-        i32,
-        String,
-        String,
-        i64,
-    )>(&sql);
+    let mut query = sqlx::query_as::<
+        _,
+        (
+            i64,
+            Option<String>,
+            Option<String>,
+            Option<String>,
+            String,
+            String,
+            String,
+            String,
+            Option<String>,
+            i32,
+            i32,
+            String,
+            String,
+            i64,
+        ),
+    >(&sql);
 
     if let Some(ref cursor) = params.cursor {
         query = query.bind(*cursor);
@@ -297,19 +300,14 @@ pub async fn get_queue_item(
         .collect();
 
     // Fetch labels on the subject
-    let subject_key = report
-        .1
-        .as_deref()
-        .or(report.3.as_deref())
-        .unwrap_or("");
+    let subject_key = report.1.as_deref().or(report.3.as_deref()).unwrap_or("");
 
-    let label_rows: Vec<(i64, String, i32, String)> = sqlx::query_as(
-        "SELECT id, val, neg, cts FROM labels WHERE uri = ? ORDER BY cts",
-    )
-    .bind(subject_key)
-    .fetch_all(&state.db)
-    .await
-    .map_err(|e| AppError::Internal(format!("failed to fetch labels: {e}")))?;
+    let label_rows: Vec<(i64, String, i32, String)> =
+        sqlx::query_as("SELECT id, val, neg, cts FROM labels WHERE uri = ? ORDER BY cts")
+            .bind(subject_key)
+            .fetch_all(&state.db)
+            .await
+            .map_err(|e| AppError::Internal(format!("failed to fetch labels: {e}")))?;
 
     let labels: Vec<SubjectLabel> = label_rows
         .into_iter()
@@ -355,15 +353,13 @@ pub async fn update_status(
     }
 
     let now_str = crate::db::now_rfc3339();
-    let result = sqlx::query(
-        "UPDATE reports SET status = ?, updated_at = ? WHERE id = ?",
-    )
-    .bind(&body.status)
-    .bind(&now_str)
-    .bind(id)
-    .execute(&state.db)
-    .await
-    .map_err(|e| AppError::Internal(format!("failed to update status: {e}")))?;
+    let result = sqlx::query("UPDATE reports SET status = ?, updated_at = ? WHERE id = ?")
+        .bind(&body.status)
+        .bind(&now_str)
+        .bind(id)
+        .execute(&state.db)
+        .await
+        .map_err(|e| AppError::Internal(format!("failed to update status: {e}")))?;
 
     if result.rows_affected() == 0 {
         return Err(AppError::NotFound);
@@ -384,12 +380,11 @@ pub async fn assign_moderator(
 ) -> Result<Json<serde_json::Value>, AppError> {
     // Validate that the DID belongs to a known moderator
     if let Some(ref did) = body.did {
-        let exists: Option<(String,)> =
-            sqlx::query_as("SELECT did FROM moderators WHERE did = ?")
-                .bind(did)
-                .fetch_optional(&state.db)
-                .await
-                .map_err(|e| AppError::Internal(format!("failed to check moderator: {e}")))?;
+        let exists: Option<(String,)> = sqlx::query_as("SELECT did FROM moderators WHERE did = ?")
+            .bind(did)
+            .fetch_optional(&state.db)
+            .await
+            .map_err(|e| AppError::Internal(format!("failed to check moderator: {e}")))?;
 
         if exists.is_none() {
             return Err(AppError::BadRequest(format!(
@@ -400,15 +395,13 @@ pub async fn assign_moderator(
     }
 
     let now_str = crate::db::now_rfc3339();
-    let result = sqlx::query(
-        "UPDATE reports SET assigned_to = ?, updated_at = ? WHERE id = ?",
-    )
-    .bind(&body.did)
-    .bind(&now_str)
-    .bind(id)
-    .execute(&state.db)
-    .await
-    .map_err(|e| AppError::Internal(format!("failed to assign moderator: {e}")))?;
+    let result = sqlx::query("UPDATE reports SET assigned_to = ?, updated_at = ? WHERE id = ?")
+        .bind(&body.did)
+        .bind(&now_str)
+        .bind(id)
+        .execute(&state.db)
+        .await
+        .map_err(|e| AppError::Internal(format!("failed to assign moderator: {e}")))?;
 
     if result.rows_affected() == 0 {
         return Err(AppError::NotFound);
@@ -477,12 +470,11 @@ pub async fn add_note(
     }
 
     // Verify the report exists
-    let exists: Option<(i64,)> =
-        sqlx::query_as("SELECT id FROM reports WHERE id = ?")
-            .bind(report_id)
-            .fetch_optional(&state.db)
-            .await
-            .map_err(|e| AppError::Internal(format!("failed to check report: {e}")))?;
+    let exists: Option<(i64,)> = sqlx::query_as("SELECT id FROM reports WHERE id = ?")
+        .bind(report_id)
+        .fetch_optional(&state.db)
+        .await
+        .map_err(|e| AppError::Internal(format!("failed to check report: {e}")))?;
 
     if exists.is_none() {
         return Err(AppError::NotFound);

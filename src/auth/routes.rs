@@ -1,15 +1,15 @@
 use axum::{
+    Json, Router,
     extract::{Query, State},
     response::Redirect,
     routing::{get, post},
-    Json, Router,
 };
 use axum_extra::extract::cookie::{Cookie, SignedCookieJar};
 use serde::Deserialize;
 
+use crate::AppState;
 use crate::auth::COOKIE_NAME;
 use crate::error::AppError;
-use crate::AppState;
 
 #[derive(Deserialize)]
 pub struct LoginQuery {
@@ -77,12 +77,11 @@ async fn callback(
     }
 
     // If this DID is not a moderator, redirect to /setup (likely a labeler OAuth during setup)
-    let is_moderator: Option<(i32,)> =
-        sqlx::query_as("SELECT 1 FROM moderators WHERE did = ?")
-            .bind(did.as_ref())
-            .fetch_optional(&state.db)
-            .await
-            .unwrap_or(None);
+    let is_moderator: Option<(i32,)> = sqlx::query_as("SELECT 1 FROM moderators WHERE did = ?")
+        .bind(did.as_ref())
+        .fetch_optional(&state.db)
+        .await
+        .unwrap_or(None);
 
     let redirect = if is_moderator.is_some() {
         "/dashboard/queue/"
@@ -124,12 +123,11 @@ async fn me(
     let cookie = jar.get(COOKIE_NAME).ok_or(AppError::Unauthorized)?;
     let did = cookie.value().to_string();
 
-    let role: Option<(String,)> =
-        sqlx::query_as("SELECT role FROM moderators WHERE did = ?")
-            .bind(&did)
-            .fetch_optional(&state.db)
-            .await
-            .map_err(|e| AppError::Internal(format!("role lookup failed: {e}")))?;
+    let role: Option<(String,)> = sqlx::query_as("SELECT role FROM moderators WHERE did = ?")
+        .bind(&did)
+        .fetch_optional(&state.db)
+        .await
+        .map_err(|e| AppError::Internal(format!("role lookup failed: {e}")))?;
 
     Ok(Json(MeResponse {
         did,

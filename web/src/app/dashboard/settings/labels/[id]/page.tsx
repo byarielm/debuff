@@ -109,7 +109,7 @@ export default function LabelDetailPage({
               Update the settings for <code>{definition.identifier}</code>.
             </p>
           </div>
-          {isAdmin && !definition.builtin && (
+          {isAdmin && (
             <Button
               variant="outline"
               size="sm"
@@ -122,17 +122,11 @@ export default function LabelDetailPage({
           )}
         </div>
 
-        {definition.builtin ? (
-          <p className="text-muted-foreground text-sm">
-            This is a built-in label definition and cannot be edited.
-          </p>
-        ) : (
-          <LabelDefinitionForm
-            onSubmit={handleSubmit}
-            onCancel={() => router.push("/dashboard/settings/labels")}
-            existing={definition}
-          />
-        )}
+        <LabelDefinitionForm
+          onSubmit={handleSubmit}
+          onCancel={() => router.push("/dashboard/settings/labels")}
+          existing={definition}
+        />
       </div>
 
       <Dialog open={deleteOpen} onOpenChange={setDeleteOpen}>

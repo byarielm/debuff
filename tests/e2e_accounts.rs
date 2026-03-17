@@ -97,26 +97,29 @@ dual_db_test!(invalid_did_format_returns_400, |backend| async move {
 // Label history
 // ---------------------------------------------------------------------------
 
-dual_db_test!(account_shows_label_history_after_action, |backend| async move {
-    let app = common::app::TestApp::new(backend).await;
+dual_db_test!(
+    account_shows_label_history_after_action,
+    |backend| async move {
+        let app = common::app::TestApp::new(backend).await;
 
-    // Apply an action first
-    let (status, _) = app
-        .post_authed(
-            "/api/accounts/did:plc:histtest/action",
-            &json!({ "action": "!suspend", "reason": "test" }),
-        )
-        .await;
-    assert_eq!(status, StatusCode::CREATED);
+        // Apply an action first
+        let (status, _) = app
+            .post_authed(
+                "/api/accounts/did:plc:histtest/action",
+                &json!({ "action": "!suspend", "reason": "test" }),
+            )
+            .await;
+        assert_eq!(status, StatusCode::CREATED);
 
-    // Now fetch the account
-    let (status, body) = app.get_authed("/api/accounts/did:plc:histtest").await;
+        // Now fetch the account
+        let (status, body) = app.get_authed("/api/accounts/did:plc:histtest").await;
 
-    assert_eq!(status, StatusCode::OK);
-    let labels = body["labels"].as_array().unwrap();
-    assert_eq!(labels.len(), 1);
-    assert_eq!(labels[0]["val"], "!suspend");
+        assert_eq!(status, StatusCode::OK);
+        let labels = body["labels"].as_array().unwrap();
+        assert_eq!(labels.len(), 1);
+        assert_eq!(labels[0]["val"], "!suspend");
 
-    let active = body["active_labels"].as_array().unwrap();
-    assert_eq!(active.len(), 1);
-});
+        let active = body["active_labels"].as_array().unwrap();
+        assert_eq!(active.len(), 1);
+    }
+);

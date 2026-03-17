@@ -14,7 +14,6 @@ import {
 } from "@/components/ui/card"
 
 const STORAGE_KEY = "debuff_setup_labeler_auth"
-const APPVIEW_URL = "https://public.api.bsky.app"
 
 interface LabelerProfile {
   did: string
@@ -74,7 +73,7 @@ export function SetupLabelerAuth({
     async function fetchProfile() {
       try {
         const res = await fetch(
-          `${APPVIEW_URL}/xrpc/app.bsky.actor.getProfile?actor=${encodeURIComponent(labelerDid)}`
+          `/api/resolve/profile?actor=${encodeURIComponent(labelerDid)}`
         )
         if (res.ok) {
           const data = await res.json()

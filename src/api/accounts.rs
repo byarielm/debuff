@@ -1,13 +1,13 @@
+use axum::Json;
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
-use axum::Json;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
+use crate::AppState;
 use crate::auth::ModeratorAuth;
 use crate::error::AppError;
 use crate::signing::UnsignedLabel;
-use crate::AppState;
 
 const VALID_ACCOUNT_ACTIONS: &[&str] = &["!suspend", "!takedown", "!hide"];
 
@@ -115,17 +115,16 @@ pub async fn get_account(
         return Err(AppError::BadRequest("invalid DID format".into()));
     }
 
-    let rows: Vec<(String, String, String, i32, String, Option<String>, Vec<u8>)> =
-        sqlx::query_as(
-            "SELECT src, uri, val, neg, cts, exp, sig
+    let rows: Vec<(String, String, String, i32, String, Option<String>, Vec<u8>)> = sqlx::query_as(
+        "SELECT src, uri, val, neg, cts, exp, sig
              FROM labels
              WHERE uri = ?
              ORDER BY cts ASC",
-        )
-        .bind(&did)
-        .fetch_all(&state.db)
-        .await
-        .map_err(|e| AppError::Internal(format!("failed to query labels: {e}")))?;
+    )
+    .bind(&did)
+    .fetch_all(&state.db)
+    .await
+    .map_err(|e| AppError::Internal(format!("failed to query labels: {e}")))?;
 
     let labels: Vec<LabelRow> = rows
         .iter()

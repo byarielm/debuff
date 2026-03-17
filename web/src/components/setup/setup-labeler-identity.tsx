@@ -25,8 +25,6 @@ interface SetupLabelerIdentityProps {
   onComplete: (did: string) => void;
 }
 
-const APPVIEW_URL = "https://public.api.bsky.app";
-
 export function SetupLabelerIdentity({
   initialDid,
   onComplete,
@@ -68,7 +66,7 @@ export function SetupLabelerIdentity({
 
     try {
       const res = await fetch(
-        `${APPVIEW_URL}/xrpc/app.bsky.actor.searchActorsTypeahead?q=${encodeURIComponent(query)}&limit=6`,
+        `/api/resolve/search?q=${encodeURIComponent(query)}&limit=6`,
       );
       if (res.ok) {
         const data = await res.json();

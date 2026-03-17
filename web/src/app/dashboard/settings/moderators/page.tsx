@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react"
 import { Trash2 } from "lucide-react"
 
 import { useCurrentUser } from "@/hooks/use-current-user"
+import { useResolveHandles } from "@/hooks/use-resolve-handle"
 import {
   getModerators,
   addModerator,
@@ -44,7 +45,7 @@ import {
 export default function ModeratorsSettingsPage() {
   const { isAdmin } = useCurrentUser()
   const [moderators, setModerators] = useState<Moderator[]>([])
-  const [handles, setHandles] = useState<Record<string, string>>({})
+  const handleMap = useResolveHandles(moderators.map((m) => m.did))
   const [error, setError] = useState<string | null>(null)
   const [deleteDid, setDeleteDid] = useState<string | null>(null)
   const [deleting, setDeleting] = useState(false)
@@ -58,28 +59,6 @@ export default function ModeratorsSettingsPage() {
   useEffect(() => {
     load()
   }, [load])
-
-  // Resolve DIDs to handles via PLC directory
-  useEffect(() => {
-    const newDids = moderators
-      .map((m) => m.did)
-      .filter((did) => !(did in handles))
-    if (newDids.length === 0) return
-    for (const did of newDids) {
-      fetch(`https://plc.directory/${encodeURIComponent(did)}`)
-        .then((res) => (res.ok ? res.json() : null))
-        .then((data) => {
-          if (!data) return
-          const handle = data.alsoKnownAs
-            ?.find((aka: string) => aka.startsWith("at://"))
-            ?.replace("at://", "")
-          if (handle) {
-            setHandles((prev) => ({ ...prev, [did]: handle }))
-          }
-        })
-        .catch(() => {})
-    }
-  }, [moderators, handles])
 
   async function handleDelete(did: string) {
     setDeleting(true)
@@ -147,8 +126,8 @@ export default function ModeratorsSettingsPage() {
                 <TableRow key={mod.did}>
                   <TableCell>
                     <div className="flex flex-col">
-                      {handles[mod.did] && (
-                        <span className="font-medium">@{handles[mod.did]}</span>
+                      {handleMap.get(mod.did) && (
+                        <span className="font-medium">@{handleMap.get(mod.did)}</span>
                       )}
                       <span className="font-mono text-muted-foreground text-xs">
                         {mod.did}
@@ -205,7 +184,7 @@ export default function ModeratorsSettingsPage() {
           </DialogHeader>
           {deleteDid && (
             <code className="text-muted-foreground block truncate text-xs">
-              {handles[deleteDid] ? `@${handles[deleteDid]} (${deleteDid})` : deleteDid}
+              {handleMap.get(deleteDid) ? `@${handleMap.get(deleteDid)} (${deleteDid})` : deleteDid}
             </code>
           )}
           <DialogFooter>

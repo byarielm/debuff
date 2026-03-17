@@ -1,10 +1,10 @@
+use axum::Json;
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
-use axum::Json;
 
+use crate::AppState;
 use crate::auth::ModeratorAuth;
 use crate::error::AppError;
-use crate::AppState;
 
 use super::types::{AddModeratorBody, ModeratorSummary};
 
@@ -18,20 +18,19 @@ pub(super) async fn add_moderator(
         return Err(AppError::Forbidden);
     }
 
-    let row: (String, String, String, Option<String>) =
-        sqlx::query_as(
-            "INSERT INTO moderators (did) VALUES (?)
+    let row: (String, String, String, Option<String>) = sqlx::query_as(
+        "INSERT INTO moderators (did) VALUES (?)
              RETURNING did, role, created_at, last_used_at",
-        )
-        .bind(&body.did)
-        .fetch_one(&state.db)
-        .await
-        .map_err(|e| match e {
-            sqlx::Error::Database(ref db_err) if db_err.is_unique_violation() => {
-                AppError::Conflict(format!("moderator '{}' already exists", body.did))
-            }
-            _ => AppError::Internal(format!("failed to create moderator: {e}")),
-        })?;
+    )
+    .bind(&body.did)
+    .fetch_one(&state.db)
+    .await
+    .map_err(|e| match e {
+        sqlx::Error::Database(ref db_err) if db_err.is_unique_violation() => {
+            AppError::Conflict(format!("moderator '{}' already exists", body.did))
+        }
+        _ => AppError::Internal(format!("failed to create moderator: {e}")),
+    })?;
 
     Ok((
         StatusCode::CREATED,
@@ -49,12 +48,7 @@ pub(super) async fn list_moderators(
     State(state): State<AppState>,
     _auth: ModeratorAuth,
 ) -> Result<Json<Vec<ModeratorSummary>>, AppError> {
-    let rows: Vec<(
-        String,
-        String,
-        String,
-        Option<String>,
-    )> = sqlx::query_as(
+    let rows: Vec<(String, String, String, Option<String>)> = sqlx::query_as(
         "SELECT did, role, created_at, last_used_at
          FROM moderators ORDER BY created_at",
     )

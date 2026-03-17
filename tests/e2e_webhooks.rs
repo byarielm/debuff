@@ -20,18 +20,21 @@ fn sign_payload(secret: &str, body: &[u8]) -> String {
 // CRUD
 // ---------------------------------------------------------------------------
 
-dual_db_test!(create_webhook_returns_201_with_secret, |backend| async move {
-    let app = common::app::TestApp::new(backend).await;
+dual_db_test!(
+    create_webhook_returns_201_with_secret,
+    |backend| async move {
+        let app = common::app::TestApp::new(backend).await;
 
-    let (status, body) = app
-        .post_authed("/api/webhooks", &json!({ "name": "test-hook" }))
-        .await;
+        let (status, body) = app
+            .post_authed("/api/webhooks", &json!({ "name": "test-hook" }))
+            .await;
 
-    assert_eq!(status, StatusCode::CREATED);
-    assert_eq!(body["name"], "test-hook");
-    assert!(body["secret"].as_str().is_some());
-    assert!(!body["secret"].as_str().unwrap().is_empty());
-});
+        assert_eq!(status, StatusCode::CREATED);
+        assert_eq!(body["name"], "test-hook");
+        assert!(body["secret"].as_str().is_some());
+        assert!(!body["secret"].as_str().unwrap().is_empty());
+    }
+);
 
 dual_db_test!(list_webhooks_omits_secret, |backend| async move {
     let app = common::app::TestApp::new(backend).await;
@@ -183,45 +186,48 @@ dual_db_test!(ingest_missing_signature_returns_401, |backend| async move {
     assert_eq!(status, StatusCode::UNAUTHORIZED);
 });
 
-dual_db_test!(ingest_auto_label_auto_accept_no_review, |backend| async move {
-    let app = common::app::TestApp::new(backend).await;
+dual_db_test!(
+    ingest_auto_label_auto_accept_no_review,
+    |backend| async move {
+        let app = common::app::TestApp::new(backend).await;
 
-    // Create webhook
-    let (_, created) = app
-        .post_authed("/api/webhooks", &json!({ "name": "auto-hook" }))
+        // Create webhook
+        let (_, created) = app
+            .post_authed("/api/webhooks", &json!({ "name": "auto-hook" }))
+            .await;
+        let id = created["id"].as_i64().unwrap();
+        let secret = created["secret"].as_str().unwrap().to_string();
+
+        // Seed the label definition so labels can be applied
+        app.seed_definition("spam").await;
+
+        // Update webhook: auto_label=true, auto_accept=true, requires_review=false
+        app.patch_authed(
+            &format!("/api/webhooks/{id}"),
+            &json!({ "auto_label": true, "auto_accept": true, "requires_review": false }),
+        )
         .await;
-    let id = created["id"].as_i64().unwrap();
-    let secret = created["secret"].as_str().unwrap().to_string();
 
-    // Seed the label definition so labels can be applied
-    app.seed_definition("spam").await;
+        let payload = json!({
+            "subject_uri": "at://did:plc:auto/app.bsky.feed.post/1",
+            "subject_did": "did:plc:auto",
+            "suggested_labels": ["spam"]
+        });
+        let body_bytes = serde_json::to_vec(&payload).unwrap();
+        let signature = sign_payload(&secret, &body_bytes);
 
-    // Update webhook: auto_label=true, auto_accept=true, requires_review=false
-    app.patch_authed(
-        &format!("/api/webhooks/{id}"),
-        &json!({ "auto_label": true, "auto_accept": true, "requires_review": false }),
-    )
-    .await;
+        let req = Request::builder()
+            .method("POST")
+            .uri("/api/ingest")
+            .header("content-type", "application/json")
+            .header("x-webhook-signature", &signature)
+            .body(Body::from(body_bytes))
+            .unwrap();
 
-    let payload = json!({
-        "subject_uri": "at://did:plc:auto/app.bsky.feed.post/1",
-        "subject_did": "did:plc:auto",
-        "suggested_labels": ["spam"]
-    });
-    let body_bytes = serde_json::to_vec(&payload).unwrap();
-    let signature = sign_payload(&secret, &body_bytes);
+        let (status, body) = common::app::send_request(&app.router, req).await;
 
-    let req = Request::builder()
-        .method("POST")
-        .uri("/api/ingest")
-        .header("content-type", "application/json")
-        .header("x-webhook-signature", &signature)
-        .body(Body::from(body_bytes))
-        .unwrap();
-
-    let (status, body) = common::app::send_request(&app.router, req).await;
-
-    assert_eq!(status, StatusCode::OK);
-    // In no-review mode, response is { labels_applied: N }
-    assert_eq!(body["labels_applied"], 1);
-});
+        assert_eq!(status, StatusCode::OK);
+        // In no-review mode, response is { labels_applied: N }
+        assert_eq!(body["labels_applied"], 1);
+    }
+);

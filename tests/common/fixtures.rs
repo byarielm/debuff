@@ -1,4 +1,4 @@
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 /// A minimal label definition with one English locale.
 pub fn label_definition(identifier: &str) -> Value {
@@ -100,11 +100,7 @@ pub fn ingest_payload(subject_uri: &str, subject_did: &str) -> Value {
 }
 
 /// Ingest payload with suggested labels.
-pub fn ingest_payload_with_labels(
-    subject_uri: &str,
-    subject_did: &str,
-    labels: &[&str],
-) -> Value {
+pub fn ingest_payload_with_labels(subject_uri: &str, subject_did: &str, labels: &[&str]) -> Value {
     json!({
         "subject_uri": subject_uri,
         "subject_did": subject_did,

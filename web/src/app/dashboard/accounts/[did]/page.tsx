@@ -11,6 +11,7 @@ import {
 } from "lucide-react"
 
 import { getLabels, accountAction } from "@/lib/api"
+import { useResolveHandle } from "@/hooks/use-resolve-handle"
 import type { Label } from "@/types/labels"
 
 import { SiteHeader } from "@/components/site-header"
@@ -28,10 +29,6 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
-
-interface PLCDocument {
-  alsoKnownAs?: string[]
-}
 
 const ACCOUNT_ACTIONS = [
   {
@@ -60,7 +57,7 @@ const ACCOUNT_ACTIONS = [
 export default function AccountPage() {
   const params = useParams<{ did: string }>()
   const did = decodeURIComponent(params.did)
-  const [handle, setHandle] = useState<string | null>(null)
+  const handle = useResolveHandle(did)
   const [labels, setLabels] = useState<Label[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -72,28 +69,8 @@ export default function AccountPage() {
     setLoading(true)
     setError(null)
     try {
-      // Fetch handle from PLC directory and labels in parallel
-      const [plcResult, labelsResult] = await Promise.allSettled([
-        fetch(`https://plc.directory/${did}`).then((r) => r.json() as Promise<PLCDocument>),
-        getLabels({ uri: did }),
-      ])
-
-      if (plcResult.status === "fulfilled") {
-        const aka = plcResult.value.alsoKnownAs
-        if (aka && aka.length > 0) {
-          // alsoKnownAs entries look like "at://handle.example.com"
-          const handleUri = aka.find((u) => u.startsWith("at://"))
-          if (handleUri) {
-            setHandle(handleUri.replace("at://", ""))
-          }
-        }
-      }
-
-      if (labelsResult.status === "fulfilled") {
-        setLabels(labelsResult.value ?? [])
-      } else {
-        setError("Failed to load labels")
-      }
+      const labelsResult = await getLabels({ uri: did })
+      setLabels(labelsResult ?? [])
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to load account data")
     } finally {

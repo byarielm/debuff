@@ -1,6 +1,6 @@
 use chrono::{DateTime, Utc};
-use sqlx::migrate::Migrator;
 use sqlx::AnyPool;
+use sqlx::migrate::Migrator;
 use std::path::Path;
 
 use crate::config::{DatabaseBackend, DatabaseConfig};
@@ -41,10 +41,7 @@ pub async fn connect(config: &DatabaseConfig) -> AnyPool {
             if let Some(parent) = std::path::Path::new(path).parent() {
                 if !parent.as_os_str().is_empty() {
                     std::fs::create_dir_all(parent).unwrap_or_else(|e| {
-                        panic!(
-                            "Failed to create data directory {}: {e}",
-                            parent.display()
-                        )
+                        panic!("Failed to create data directory {}: {e}", parent.display())
                     });
                 }
             }
@@ -83,10 +80,7 @@ pub async fn connect(config: &DatabaseConfig) -> AnyPool {
         .await
         .unwrap_or_else(|e| panic!("Failed to load migrations from {migration_dir}: {e}"));
 
-    migrator
-        .run(&pool)
-        .await
-        .expect("Failed to run migrations");
+    migrator.run(&pool).await.expect("Failed to run migrations");
 
     pool
 }

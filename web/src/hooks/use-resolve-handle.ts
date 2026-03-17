@@ -5,22 +5,16 @@ import { useEffect, useState } from "react"
 const handleCache = new Map<string, string>()
 const pendingRequests = new Map<string, Promise<string | null>>()
 
-function resolveFromPlc(did: string): Promise<string | null> {
+function resolveHandle(did: string): Promise<string | null> {
   const existing = pendingRequests.get(did)
   if (existing) return existing
 
-  const promise = fetch(`https://plc.directory/${encodeURIComponent(did)}`)
+  const promise = fetch(`/api/resolve/handle?did=${encodeURIComponent(did)}`)
     .then((res) => (res.ok ? res.json() : null))
     .then((data) => {
-      if (!data) return null
-      const handle = data.alsoKnownAs
-        ?.find((aka: string) => aka.startsWith("at://"))
-        ?.replace("at://", "")
-      if (handle) {
-        handleCache.set(did, handle)
-        return handle
-      }
-      return null
+      if (!data?.handle) return null
+      handleCache.set(did, data.handle)
+      return data.handle
     })
     .catch(() => null)
     .finally(() => {
@@ -42,7 +36,7 @@ export function useResolveHandle(did: string | null | undefined): string | null 
       setHandle(cachedHandle)
       return
     }
-    resolveFromPlc(did).then((h) => {
+    resolveHandle(did).then((h) => {
       if (h) setHandle(h)
     })
   }, [did])
@@ -73,7 +67,7 @@ export function useResolveHandles(dids: string[]): Map<string, string> {
       return
     }
 
-    Promise.all(unresolved.map((did) => resolveFromPlc(did))).then(() => {
+    Promise.all(unresolved.map((did) => resolveHandle(did))).then(() => {
       const all = new Map<string, string>()
       for (const did of dids) {
         const cached = handleCache.get(did)

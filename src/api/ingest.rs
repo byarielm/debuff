@@ -1,7 +1,7 @@
+use axum::Json;
 use axum::body::Bytes;
 use axum::extract::State;
 use axum::http::{HeaderMap, StatusCode};
-use axum::Json;
 use chrono::Utc;
 use hmac::{Hmac, Mac};
 use serde::{Deserialize, Serialize};
@@ -65,8 +65,7 @@ async fn verify_signature(
         .strip_prefix("sha256=")
         .ok_or(AppError::Unauthorized)?;
 
-    let provided_sig =
-        hex::decode(hex_digest).map_err(|_| AppError::Unauthorized)?;
+    let provided_sig = hex::decode(hex_digest).map_err(|_| AppError::Unauthorized)?;
 
     let rows: Vec<(i32, String, String, i32, i32, i32)> = sqlx::query_as(
         "SELECT id, name, secret, auto_accept, auto_label, requires_review \
@@ -160,7 +159,11 @@ pub async fn ingest(
         existing_id
     } else {
         // Create new report
-        let status = if source.auto_accept { "resolved" } else { "pending" };
+        let status = if source.auto_accept {
+            "resolved"
+        } else {
+            "pending"
+        };
 
         let row: (i64,) = sqlx::query_as(
             "INSERT INTO reports (subject_uri, subject_did, reason_type, reason, reported_by, status, priority) \
@@ -194,10 +197,7 @@ pub async fn ingest(
         }
     }
 
-    Ok((
-        StatusCode::OK,
-        Json(IngestResponse::Report { report_id }),
-    ))
+    Ok((StatusCode::OK, Json(IngestResponse::Report { report_id })))
 }
 
 /// Sign and insert labels, broadcasting each to the WebSocket channel.

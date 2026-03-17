@@ -1,12 +1,12 @@
+use axum::Json;
 use axum::extract::State;
 use axum::http::StatusCode;
-use axum::Json;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
+use crate::AppState;
 use crate::auth::ServiceAuth;
 use crate::error::AppError;
-use crate::AppState;
 
 // ---------------------------------------------------------------------------
 // ATProto reasonType constants
@@ -78,9 +78,7 @@ pub async fn create_report(
     // Extract subject fields
     let (subject_uri, subject_cid, subject_did) = match &body.subject {
         ReportSubject::RepoRef { did } => (None, None, Some(did.clone())),
-        ReportSubject::StrongRef { uri, cid } => {
-            (Some(uri.clone()), Some(cid.clone()), None)
-        }
+        ReportSubject::StrongRef { uri, cid } => (Some(uri.clone()), Some(cid.clone()), None),
     };
 
     // Build the canonical subject URI for duplicate detection.

@@ -1,10 +1,10 @@
 use atrium_api::agent::Agent;
 use atrium_api::com::atproto::repo::{get_record, put_record};
-use atrium_api::types::string::Did;
 use atrium_api::types::TryIntoUnknown;
+use atrium_api::types::string::Did;
+use axum::Json;
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
-use axum::Json;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
@@ -27,7 +27,6 @@ pub struct DefinitionResponse {
     pub blurs: String,
     pub default_setting: String,
     pub adult_only: bool,
-    pub builtin: bool,
     pub locales: Vec<LocaleResponse>,
     pub created_at: DateTime<Utc>,
 }
@@ -130,21 +129,19 @@ pub async fn get_definition(
     _auth: ModeratorAuth,
     Path(id): Path<i32>,
 ) -> Result<Json<DefinitionResponse>, AppError> {
-    let row: Option<(i32, String, String, String, String, i32, i32, String)> =
-        sqlx::query_as(
-            "SELECT id, identifier, severity, blurs, default_setting, adult_only, builtin, created_at \
+    let row: Option<(i32, String, String, String, String, i32, String)> = sqlx::query_as(
+        "SELECT id, identifier, severity, blurs, default_setting, adult_only, created_at \
              FROM label_definitions WHERE id = ?",
-        )
-        .bind(id)
-        .fetch_optional(&state.db)
-        .await
-        .map_err(|e| AppError::Internal(format!("failed to fetch definition: {e}")))?;
+    )
+    .bind(id)
+    .fetch_optional(&state.db)
+    .await
+    .map_err(|e| AppError::Internal(format!("failed to fetch definition: {e}")))?;
 
-    let (def_id, identifier, severity, blurs, default_setting, adult_only_int, builtin_int, created_at) =
+    let (def_id, identifier, severity, blurs, default_setting, adult_only_int, created_at) =
         row.ok_or(AppError::NotFound)?;
 
     let adult_only = adult_only_int != 0;
-    let builtin = builtin_int != 0;
 
     let locale_rows: Vec<(String, String, String)> = sqlx::query_as(
         "SELECT lang, name, description FROM label_definition_locales \
@@ -171,7 +168,6 @@ pub async fn get_definition(
         blurs,
         default_setting,
         adult_only,
-        builtin,
         locales,
         created_at: crate::db::parse_dt(&created_at),
     }))
@@ -182,14 +178,13 @@ pub async fn list_definitions(
     State(state): State<AppState>,
     _auth: ModeratorAuth,
 ) -> Result<Json<Vec<DefinitionResponse>>, AppError> {
-    let rows: Vec<(i32, String, String, String, String, i32, i32, String)> =
-        sqlx::query_as(
-            "SELECT id, identifier, severity, blurs, default_setting, adult_only, builtin, created_at \
+    let rows: Vec<(i32, String, String, String, String, i32, String)> = sqlx::query_as(
+        "SELECT id, identifier, severity, blurs, default_setting, adult_only, created_at \
              FROM label_definitions ORDER BY id",
-        )
-        .fetch_all(&state.db)
-        .await
-        .map_err(|e| AppError::Internal(format!("failed to list definitions: {e}")))?;
+    )
+    .fetch_all(&state.db)
+    .await
+    .map_err(|e| AppError::Internal(format!("failed to list definitions: {e}")))?;
 
     let definition_ids: Vec<i32> = rows.iter().map(|r| r.0).collect();
 
@@ -218,20 +213,17 @@ pub async fn list_definitions(
     let mut locale_map: std::collections::HashMap<i32, Vec<LocaleResponse>> =
         std::collections::HashMap::new();
     for (def_id, lang, name, description) in locale_rows {
-        locale_map
-            .entry(def_id)
-            .or_default()
-            .push(LocaleResponse {
-                lang,
-                name,
-                description,
-            });
+        locale_map.entry(def_id).or_default().push(LocaleResponse {
+            lang,
+            name,
+            description,
+        });
     }
 
     let definitions: Vec<DefinitionResponse> = rows
         .into_iter()
         .map(
-            |(id, identifier, severity, blurs, default_setting, adult_only_int, builtin_int, created_at)| {
+            |(id, identifier, severity, blurs, default_setting, adult_only_int, created_at)| {
                 DefinitionResponse {
                     id,
                     identifier,
@@ -239,7 +231,6 @@ pub async fn list_definitions(
                     blurs,
                     default_setting,
                     adult_only: adult_only_int != 0,
-                    builtin: builtin_int != 0,
                     locales: locale_map.remove(&id).unwrap_or_default(),
                     created_at: crate::db::parse_dt(&created_at),
                 }
@@ -268,8 +259,8 @@ pub async fn create_definition(
         .map_err(|e| AppError::Internal(format!("transaction start failed: {e}")))?;
 
     let row: (i32, String) = sqlx::query_as(
-        "INSERT INTO label_definitions (identifier, severity, blurs, default_setting, adult_only, builtin) \
-         VALUES (?, ?, ?, ?, ?, false) \
+        "INSERT INTO label_definitions (identifier, severity, blurs, default_setting, adult_only) \
+         VALUES (?, ?, ?, ?, ?) \
          RETURNING id, created_at",
     )
     .bind(&body.identifier)
@@ -330,14 +321,13 @@ pub async fn create_definition(
             blurs: body.blurs,
             default_setting: body.default_setting,
             adult_only: body.adult_only,
-            builtin: false,
             locales,
             created_at,
         }),
     ))
 }
 
-/// PATCH /api/definitions/:id — update a definition. Rejects builtin definitions.
+/// PATCH /api/definitions/:id — update a definition.
 pub async fn update_definition(
     State(state): State<AppState>,
     _auth: ModeratorAuth,
@@ -345,25 +335,26 @@ pub async fn update_definition(
     Json(body): Json<UpdateDefinitionBody>,
 ) -> Result<Json<DefinitionResponse>, AppError> {
     // Fetch existing definition
-    let row: Option<(i32, String, String, String, String, i32, i32, String)> =
-        sqlx::query_as(
-            "SELECT id, identifier, severity, blurs, default_setting, adult_only, builtin, created_at \
+    let row: Option<(i32, String, String, String, String, i32, String)> = sqlx::query_as(
+        "SELECT id, identifier, severity, blurs, default_setting, adult_only, created_at \
              FROM label_definitions WHERE id = ?",
-        )
-        .bind(id)
-        .fetch_optional(&state.db)
-        .await
-        .map_err(|e| AppError::Internal(format!("failed to fetch definition: {e}")))?;
+    )
+    .bind(id)
+    .fetch_optional(&state.db)
+    .await
+    .map_err(|e| AppError::Internal(format!("failed to fetch definition: {e}")))?;
 
-    let (def_id, mut identifier, mut severity, mut blurs, mut default_setting, adult_only_int, builtin_int, created_at) =
-        row.ok_or(AppError::NotFound)?;
+    let (
+        def_id,
+        mut identifier,
+        mut severity,
+        mut blurs,
+        mut default_setting,
+        adult_only_int,
+        created_at,
+    ) = row.ok_or(AppError::NotFound)?;
 
-    let builtin = builtin_int != 0;
     let mut adult_only = adult_only_int != 0;
-
-    if builtin {
-        return Err(AppError::Forbidden);
-    }
 
     // Apply updates
     if let Some(ref new_id) = body.identifier {
@@ -479,34 +470,26 @@ pub async fn update_definition(
         blurs,
         default_setting,
         adult_only,
-        builtin: false,
         locales,
         created_at: crate::db::parse_dt(&created_at),
     }))
 }
 
-/// DELETE /api/definitions/:id — delete a definition. Rejects builtin definitions.
+/// DELETE /api/definitions/:id — delete a definition.
 pub async fn delete_definition(
     State(state): State<AppState>,
     _auth: ModeratorAuth,
     Path(id): Path<i32>,
 ) -> Result<StatusCode, AppError> {
-    // Check if it exists and whether it's builtin
-    let row: Option<(i32,)> =
-        sqlx::query_as("SELECT builtin FROM label_definitions WHERE id = ?")
-            .bind(id)
-            .fetch_optional(&state.db)
-            .await
-            .map_err(|e| AppError::Internal(format!("failed to fetch definition: {e}")))?;
+    // Check if it exists
+    let exists: Option<(i32,)> = sqlx::query_as("SELECT id FROM label_definitions WHERE id = ?")
+        .bind(id)
+        .fetch_optional(&state.db)
+        .await
+        .map_err(|e| AppError::Internal(format!("failed to fetch definition: {e}")))?;
 
-    let (builtin_int,) = row.ok_or(AppError::NotFound)?;
-    let builtin = builtin_int != 0;
+    exists.ok_or(AppError::NotFound)?;
 
-    if builtin {
-        return Err(AppError::Forbidden);
-    }
-
-    // CASCADE will delete locales automatically
     sqlx::query("DELETE FROM label_definitions WHERE id = ?")
         .bind(id)
         .execute(&state.db)
@@ -565,8 +548,7 @@ async fn sync_service_record_inner(state: &AppState) -> Result<(), String> {
 
     // Extract the existing record as JSON to preserve fields we don't manage
     let existing_json: serde_json::Value = match &existing {
-        Some(resp) => serde_json::to_value(&resp.value)
-            .unwrap_or_else(|_| serde_json::json!({})),
+        Some(resp) => serde_json::to_value(&resp.value).unwrap_or_else(|_| serde_json::json!({})),
         None => serde_json::json!({}),
     };
 
@@ -606,11 +588,14 @@ async fn sync_service_record_inner(state: &AppState) -> Result<(), String> {
     let mut locale_map: std::collections::HashMap<i32, Vec<serde_json::Value>> =
         std::collections::HashMap::new();
     for (def_id, lang, name, description) in locale_rows {
-        locale_map.entry(def_id).or_default().push(serde_json::json!({
-            "lang": lang,
-            "name": name,
-            "description": description,
-        }));
+        locale_map
+            .entry(def_id)
+            .or_default()
+            .push(serde_json::json!({
+                "lang": lang,
+                "name": name,
+                "description": description,
+            }));
     }
 
     // Build labelValues (string array) and labelValueDefinitions (full objects)
@@ -639,9 +624,7 @@ async fn sync_service_record_inner(state: &AppState) -> Result<(), String> {
 
     // Build updated record, preserving existing fields
     let now = crate::db::now_rfc3339();
-    let created_at = existing_json["createdAt"]
-        .as_str()
-        .unwrap_or(&now);
+    let created_at = existing_json["createdAt"].as_str().unwrap_or(&now);
 
     let mut record = serde_json::json!({
         "$type": "app.bsky.labeler.service",
@@ -678,9 +661,7 @@ async fn sync_service_record_inner(state: &AppState) -> Result<(), String> {
                 collection: "app.bsky.labeler.service"
                     .parse()
                     .map_err(|e| format!("Invalid NSID: {e}"))?,
-                rkey: "self"
-                    .parse()
-                    .map_err(|e| format!("Invalid rkey: {e}"))?,
+                rkey: "self".parse().map_err(|e| format!("Invalid rkey: {e}"))?,
                 record: record_unknown,
                 swap_commit: None,
                 swap_record: None,
@@ -691,7 +672,10 @@ async fn sync_service_record_inner(state: &AppState) -> Result<(), String> {
         .await
         .map_err(|e| format!("putRecord failed: {e}"))?;
 
-    tracing::info!("Synced labeler service record with {} label definitions", rows.len());
+    tracing::info!(
+        "Synced labeler service record with {} label definitions",
+        rows.len()
+    );
     Ok(())
 }
 

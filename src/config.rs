@@ -51,15 +51,33 @@ pub struct LabelerConfig {
 }
 
 // Default functions for serde
-fn default_host() -> String { "0.0.0.0".into() }
-fn default_port() -> u16 { 3000 }
-fn default_public_url() -> String { "http://127.0.0.1:3001".into() }
-fn default_static_dir() -> String { "./web/out".into() }
-fn default_session_secret() -> String { "change-me-in-production-not-secure".into() }
-fn default_backend() -> DatabaseBackend { DatabaseBackend::Sqlite }
-fn default_database_url() -> String { "sqlite://data/debuff.db?mode=rwc".into() }
-fn default_labeler_did() -> String { "did:plc:placeholder".into() }
-fn default_plc_url() -> String { "https://plc.directory".into() }
+fn default_host() -> String {
+    "0.0.0.0".into()
+}
+fn default_port() -> u16 {
+    3000
+}
+fn default_public_url() -> String {
+    "http://127.0.0.1:3001".into()
+}
+fn default_static_dir() -> String {
+    "./web/out".into()
+}
+fn default_session_secret() -> String {
+    "change-me-in-production-not-secure".into()
+}
+fn default_backend() -> DatabaseBackend {
+    DatabaseBackend::Sqlite
+}
+fn default_database_url() -> String {
+    "sqlite://data/debuff.db?mode=rwc".into()
+}
+fn default_labeler_did() -> String {
+    "did:plc:placeholder".into()
+}
+fn default_plc_url() -> String {
+    "https://plc.directory".into()
+}
 
 impl Default for ServerConfig {
     fn default() -> Self {
@@ -141,7 +159,8 @@ pub fn update_config_file(updates: &[(&str, &str)]) -> Result<(), String> {
         String::new()
     };
 
-    let mut doc = contents.parse::<toml_edit::DocumentMut>()
+    let mut doc = contents
+        .parse::<toml_edit::DocumentMut>()
         .map_err(|e| format!("Failed to parse config: {e}"))?;
 
     for (dotted_key, value) in updates {
@@ -158,8 +177,7 @@ pub fn update_config_file(updates: &[(&str, &str)]) -> Result<(), String> {
 
     if let Some(parent) = path.parent() {
         if !parent.as_os_str().is_empty() {
-            std::fs::create_dir_all(parent)
-                .map_err(|e| format!("Failed to create dir: {e}"))?;
+            std::fs::create_dir_all(parent).map_err(|e| format!("Failed to create dir: {e}"))?;
         }
     }
 

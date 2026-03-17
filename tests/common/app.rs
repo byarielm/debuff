@@ -1,8 +1,8 @@
 use std::sync::Arc;
 
+use axum::Router;
 use axum::body::Body;
 use axum::http::{Request, StatusCode};
-use axum::Router;
 use cookie::{CookieJar, Key, SignedJar};
 use http_body_util::BodyExt;
 use serde_json::Value;
@@ -12,17 +12,18 @@ use tokio::sync::broadcast;
 use tower::ServiceExt;
 use wiremock::MockServer;
 
-use debuff::auth::oauth_store::{DbSessionStore, DbStateStore};
+use debuff::AppState;
 use debuff::auth::COOKIE_NAME;
+use debuff::auth::oauth_store::{DbSessionStore, DbStateStore};
 use debuff::config::{Config, DatabaseConfig, LabelerConfig, ServerConfig};
 use debuff::signing::LabelSigner;
-use debuff::AppState;
 
 use super::db::{self, Backend};
 
+use debuff::dns::NativeDnsResolver;
+
 use atrium_identity::did::{CommonDidResolver, CommonDidResolverConfig};
 use atrium_identity::handle::{AtprotoHandleResolver, AtprotoHandleResolverConfig};
-use atrium_identity::handle::{DohDnsTxtResolver, DohDnsTxtResolverConfig};
 use atrium_oauth::{
     AtprotoLocalhostClientMetadata, DefaultHttpClient, KnownScope, OAuthClientConfig,
     OAuthResolverConfig, Scope,
@@ -89,11 +90,9 @@ impl TestApp {
             plc_directory_url: config.labeler.plc_url.clone(),
             http_client: Arc::clone(&atrium_http),
         });
+        let dns = NativeDnsResolver::new();
         let handle_resolver = AtprotoHandleResolver::new(AtprotoHandleResolverConfig {
-            dns_txt_resolver: DohDnsTxtResolver::new(DohDnsTxtResolverConfig {
-                service_url: "https://dns.google/dns-query".into(),
-                http_client: Arc::clone(&atrium_http),
-            }),
+            dns_txt_resolver: dns.clone(),
             http_client: Arc::clone(&atrium_http),
         });
         let oauth_client = atrium_oauth::OAuthClient::new(OAuthClientConfig {
@@ -117,6 +116,7 @@ impl TestApp {
             config,
             db: pool.clone(),
             http,
+            dns,
             label_broadcast: label_tx,
             signer: Arc::new(signer),
             oauth: Arc::new(oauth_client),
@@ -236,8 +236,8 @@ impl TestApp {
     pub async fn seed_definition(&self, identifier: &str) -> i64 {
         let now = debuff::db::now_rfc3339();
         sqlx::query(
-            "INSERT INTO label_definitions (identifier, severity, blurs, default_setting, adult_only, builtin, created_at) \
-             VALUES (?, 'inform', 'none', 'warn', 0, 0, ?) \
+            "INSERT INTO label_definitions (identifier, severity, blurs, default_setting, adult_only, created_at) \
+             VALUES (?, 'inform', 'none', 'warn', 0, ?) \
              ON CONFLICT (identifier) DO NOTHING",
         )
         .bind(identifier)
@@ -246,12 +246,11 @@ impl TestApp {
         .await
         .expect("failed to seed definition");
 
-        let row: (i64,) =
-            sqlx::query_as("SELECT id FROM label_definitions WHERE identifier = ?")
-                .bind(identifier)
-                .fetch_one(&self.pool)
-                .await
-                .expect("failed to fetch seeded definition id");
+        let row: (i64,) = sqlx::query_as("SELECT id FROM label_definitions WHERE identifier = ?")
+            .bind(identifier)
+            .fetch_one(&self.pool)
+            .await
+            .expect("failed to fetch seeded definition id");
         row.0
     }
 
@@ -319,11 +318,7 @@ fn build_signed_cookie(axum_key: &axum_extra::extract::cookie::Key, did: &str) -
 // ---------------------------------------------------------------------------
 
 pub async fn send_request(router: &Router, req: Request<Body>) -> (StatusCode, Value) {
-    let response = router
-        .clone()
-        .oneshot(req)
-        .await
-        .expect("request failed");
+    let response = router.clone().oneshot(req).await.expect("request failed");
 
     let status = response.status();
     let body_bytes = response
@@ -336,9 +331,8 @@ pub async fn send_request(router: &Router, req: Request<Body>) -> (StatusCode, V
     let value = if body_bytes.is_empty() {
         Value::Null
     } else {
-        serde_json::from_slice(&body_bytes).unwrap_or_else(|_| {
-            Value::String(String::from_utf8_lossy(&body_bytes).into_owned())
-        })
+        serde_json::from_slice(&body_bytes)
+            .unwrap_or_else(|_| Value::String(String::from_utf8_lossy(&body_bytes).into_owned()))
     };
 
     (status, value)

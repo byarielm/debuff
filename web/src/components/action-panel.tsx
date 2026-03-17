@@ -1,7 +1,6 @@
 "use client"
 
-import { useCallback, useMemo, useState } from "react"
-import { ChevronRight } from "lucide-react"
+import { useCallback, useState } from "react"
 
 import type { Report } from "@/types/reports"
 import type { LabelDefinition } from "@/types/definitions"
@@ -13,11 +12,6 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card"
-import {
-  Collapsible,
-  CollapsibleContent,
-  CollapsibleTrigger,
-} from "@/components/ui/collapsible"
 import {
   Dialog,
   DialogClose,
@@ -66,8 +60,6 @@ export function ActionPanel({
   const [selectedLabels, setSelectedLabels] = useState<string[]>([])
   const [applyingLabels, setApplyingLabels] = useState(false)
 
-  const customDefs = useMemo(() => definitions.filter((d) => !d.builtin), [definitions])
-  const builtinDefs = useMemo(() => definitions.filter((d) => d.builtin), [definitions])
   const [dismissNote, setDismissNote] = useState("")
   const [statusLoading, setStatusLoading] = useState(false)
   const [escalating, setEscalating] = useState(false)
@@ -145,9 +137,9 @@ export function ActionPanel({
           <CardTitle className="text-base">Apply Labels</CardTitle>
         </CardHeader>
         <CardContent className="flex flex-col gap-3">
-          {customDefs.length > 0 && (
+          {definitions.length > 0 ? (
             <div className="flex flex-wrap gap-1.5">
-              {customDefs.map((def) => (
+              {definitions.map((def) => (
                 <Badge
                   key={def.id}
                   variant={selectedLabels.includes(def.identifier) ? "default" : "outline"}
@@ -158,32 +150,7 @@ export function ActionPanel({
                 </Badge>
               ))}
             </div>
-          )}
-
-          {builtinDefs.length > 0 && (
-            <Collapsible className="group/builtin">
-              <CollapsibleTrigger className="flex items-center gap-1 text-muted-foreground text-xs font-medium hover:text-foreground transition-colors">
-                <ChevronRight className="size-3 transition-transform group-data-[state=open]/builtin:rotate-90" />
-                Built-in Labels
-              </CollapsibleTrigger>
-              <CollapsibleContent>
-                <div className="flex flex-wrap gap-1.5 pt-2">
-                  {builtinDefs.map((def) => (
-                    <Badge
-                      key={def.id}
-                      variant={selectedLabels.includes(def.identifier) ? "default" : "outline"}
-                      className="cursor-pointer select-none"
-                      onClick={() => toggleLabel(def.identifier)}
-                    >
-                      {def.identifier}
-                    </Badge>
-                  ))}
-                </div>
-              </CollapsibleContent>
-            </Collapsible>
-          )}
-
-          {definitions.length === 0 && (
+          ) : (
             <p className="text-muted-foreground text-sm">No label definitions configured.</p>
           )}
 
