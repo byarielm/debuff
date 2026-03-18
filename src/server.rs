@@ -1,5 +1,4 @@
-use axum::extract::{Request, State};
-use axum::middleware;
+use axum::extract::State;
 use axum::routing::{get, post};
 use axum::{Json, Router};
 use bytes::Bytes;
@@ -47,9 +46,7 @@ pub fn router(state: AppState) -> Router {
         }
     });
 
-    let serve_dir = ServeDir::new(&static_dir)
-        .redirect_to_trailing_slash(false)
-        .not_found_service(spa_fallback);
+    let serve_dir = ServeDir::new(&static_dir).not_found_service(spa_fallback);
 
     Router::new()
         .route("/health", get(health))
@@ -69,26 +66,9 @@ pub fn router(state: AppState) -> Router {
         .nest("/auth", crate::auth::routes::routes())
         .route("/oauth/client-metadata.json", get(client_metadata))
         .fallback_service(serve_dir)
-        .layer(middleware::map_request(trim_trailing_slash))
         .layer(TraceLayer::new_for_http())
         .layer(CorsLayer::permissive())
         .with_state(state)
-}
-
-async fn trim_trailing_slash(mut req: Request) -> Request {
-    let path = req.uri().path();
-    if path.len() > 1 && path.ends_with('/') {
-        let new_path = path.trim_end_matches('/');
-        let mut parts = req.uri().clone().into_parts();
-        let new_pq = if let Some(q) = req.uri().query() {
-            format!("{new_path}?{q}")
-        } else {
-            new_path.to_string()
-        };
-        parts.path_and_query = Some(new_pq.parse().unwrap());
-        *req.uri_mut() = axum::http::Uri::from_parts(parts).unwrap();
-    }
-    req
 }
 
 async fn health() -> Json<serde_json::Value> {
