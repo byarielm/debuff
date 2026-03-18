@@ -368,13 +368,11 @@ pub async fn update_status(
     }
 
     let backend = state.config.database.backend.clone();
-    let now_str = crate::db::now_rfc3339();
     let result = sqlx::query(&adapt_sql(
-        "UPDATE reports SET status = $1, updated_at = $2 WHERE id = $3",
+        "UPDATE reports SET status = $1, updated_at = $NOW WHERE id = $2",
         backend,
     ))
     .bind(&body.status)
-    .bind(&now_str)
     .bind(id)
     .execute(&state.db)
     .await
@@ -417,13 +415,11 @@ pub async fn assign_moderator(
         }
     }
 
-    let now_str = crate::db::now_rfc3339();
     let result = sqlx::query(&adapt_sql(
-        "UPDATE reports SET assigned_to = $1, updated_at = $2 WHERE id = $3",
+        "UPDATE reports SET assigned_to = $1, updated_at = $NOW WHERE id = $2",
         backend,
     ))
     .bind(&body.did)
-    .bind(&now_str)
     .bind(id)
     .execute(&state.db)
     .await
@@ -447,15 +443,14 @@ pub async fn escalate(
     Json(body): Json<EscalateBody>,
 ) -> Result<Json<serde_json::Value>, AppError> {
     let backend = state.config.database.backend.clone();
-    let now_str = crate::db::now_rfc3339();
     let sql = if body.assigned_to.is_some() {
         adapt_sql(
-            "UPDATE reports SET priority = priority + 1, assigned_to = $1, updated_at = $2 WHERE id = $3 RETURNING priority, assigned_to",
+            "UPDATE reports SET priority = priority + 1, assigned_to = $1, updated_at = $NOW WHERE id = $2 RETURNING priority, assigned_to",
             backend,
         )
     } else {
         adapt_sql(
-            "UPDATE reports SET priority = priority + 1, updated_at = $1 WHERE id = $2 RETURNING priority, assigned_to",
+            "UPDATE reports SET priority = priority + 1, updated_at = $NOW WHERE id = $1 RETURNING priority, assigned_to",
             backend,
         )
     };
@@ -463,13 +458,11 @@ pub async fn escalate(
     let row: Option<(i32, Option<String>)> = if body.assigned_to.is_some() {
         sqlx::query_as(&sql)
             .bind(&body.assigned_to)
-            .bind(&now_str)
             .bind(id)
             .fetch_optional(&state.db)
             .await
     } else {
         sqlx::query_as(&sql)
-            .bind(&now_str)
             .bind(id)
             .fetch_optional(&state.db)
             .await

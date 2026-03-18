@@ -4,9 +4,9 @@ CREATE TABLE labels (
     uri TEXT NOT NULL,
     cid TEXT,
     val TEXT NOT NULL,
-    neg BOOLEAN NOT NULL DEFAULT false,
-    cts TIMESTAMPTZ NOT NULL,
-    exp TIMESTAMPTZ,
+    neg INTEGER NOT NULL DEFAULT 0,
+    cts TEXT NOT NULL,
+    exp TEXT,
     sig BYTEA NOT NULL,
     seq BIGSERIAL NOT NULL,
     UNIQUE(src, uri, val)

@@ -77,9 +77,9 @@ pub async fn apply_action(
     let backend = state.config.database.backend.clone();
     let row: (i64, String) = sqlx::query_as(&adapt_sql(
         "INSERT INTO labels (src, uri, val, neg, cts, sig)
-         VALUES ($1, $2, $3, false, $4, $5)
+         VALUES ($1, $2, $3, 0, $4, $5)
          ON CONFLICT (src, uri, val) DO UPDATE
-         SET neg = false, cts = EXCLUDED.cts, sig = EXCLUDED.sig
+         SET neg = 0, cts = EXCLUDED.cts, sig = EXCLUDED.sig
          RETURNING seq, cts",
         backend,
     ))

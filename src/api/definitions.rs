@@ -280,7 +280,7 @@ pub async fn create_definition(
     .bind(&body.severity)
     .bind(&body.blurs)
     .bind(&body.default_setting)
-    .bind(body.adult_only)
+    .bind(body.adult_only as i32)
     .fetch_one(&mut *tx)
     .await
     .map_err(|e| {
@@ -410,7 +410,7 @@ pub async fn update_definition(
     .bind(&severity)
     .bind(&blurs)
     .bind(&default_setting)
-    .bind(adult_only)
+    .bind(adult_only as i32)
     .bind(def_id)
     .execute(&mut *tx)
     .await

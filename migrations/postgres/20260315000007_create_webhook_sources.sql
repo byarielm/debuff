@@ -2,9 +2,9 @@ CREATE TABLE webhook_sources (
     id SERIAL PRIMARY KEY,
     name TEXT NOT NULL,
     secret TEXT NOT NULL,
-    active BOOLEAN NOT NULL DEFAULT true,
-    auto_accept BOOLEAN NOT NULL DEFAULT false,
-    auto_label BOOLEAN NOT NULL DEFAULT false,
-    requires_review BOOLEAN NOT NULL DEFAULT true,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    active INTEGER NOT NULL DEFAULT 1,
+    auto_accept INTEGER NOT NULL DEFAULT 0,
+    auto_label INTEGER NOT NULL DEFAULT 0,
+    requires_review INTEGER NOT NULL DEFAULT 1,
+    created_at TEXT NOT NULL DEFAULT NOW()::TEXT
 );

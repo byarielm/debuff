@@ -9,9 +9,9 @@ CREATE TABLE reports (
     status TEXT NOT NULL DEFAULT 'pending',
     assigned_to TEXT,
     priority INT NOT NULL DEFAULT 0,
-    auto_labeled BOOLEAN NOT NULL DEFAULT false,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    auto_labeled INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL DEFAULT NOW()::TEXT,
+    updated_at TEXT NOT NULL DEFAULT NOW()::TEXT
 );
 
 CREATE INDEX idx_reports_status ON reports(status);

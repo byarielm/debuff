@@ -113,14 +113,12 @@ impl FromRequestParts<AppState> for ModeratorAuth {
 
         let db = state.db.clone();
         let update_did = mod_did.clone();
-        let now_str = crate::db::now_rfc3339();
         let update_sql = adapt_sql(
-            "UPDATE moderators SET last_used_at = $1 WHERE did = $2",
+            "UPDATE moderators SET last_used_at = $NOW WHERE did = $1",
             backend,
         );
         tokio::spawn(async move {
             let _ = sqlx::query(&update_sql)
-                .bind(&now_str)
                 .bind(&update_did)
                 .execute(&db)
                 .await;

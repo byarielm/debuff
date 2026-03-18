@@ -78,15 +78,13 @@ impl Store<Did, Session> for DbSessionStore {
 
     async fn set(&self, key: Did, value: Session) -> Result<(), Self::Error> {
         let json = serde_json::to_string(&value)?;
-        let now_str = crate::db::now_rfc3339();
         sqlx::query(&adapt_sql(
-            "INSERT INTO oauth_sessions (did, session_data, updated_at) VALUES ($1, $2, $3)
+            "INSERT INTO oauth_sessions (did, session_data, updated_at) VALUES ($1, $2, $NOW)
              ON CONFLICT (did) DO UPDATE SET session_data = EXCLUDED.session_data, updated_at = EXCLUDED.updated_at",
             self.backend.clone(),
         ))
         .bind(key.as_ref())
         .bind(&json)
-        .bind(&now_str)
         .execute(&self.pool)
         .await?;
         Ok(())

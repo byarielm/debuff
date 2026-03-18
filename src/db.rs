@@ -6,15 +6,19 @@ use std::path::Path;
 use crate::config::{DatabaseBackend, DatabaseConfig};
 
 /// Convert PostgreSQL-style placeholders ($1, $2, ...) to SQLite-style (?, ?, ...).
+/// Also replaces `$NOW` with the backend-native "current timestamp" expression:
+/// - Postgres: `NOW()::TEXT`
+/// - SQLite: `datetime('now')`
+///
 /// Queries should be written with $N placeholders and converted at runtime.
 pub fn adapt_sql(sql: &str, backend: DatabaseBackend) -> String {
     match backend {
-        DatabaseBackend::Postgres => sql.to_string(),
+        DatabaseBackend::Postgres => sql.replace("$NOW", "NOW()::TEXT"),
         DatabaseBackend::Sqlite => {
-            // Replace $1, $2, ... with ?
-            let mut result = sql.to_string();
+            // Replace $NOW first (before numbered placeholders)
+            let mut result = sql.replace("$NOW", "datetime('now')");
+            // Replace $1, $2, ... with ? (reverse order to handle $10 before $1)
             for i in (1..=50).rev() {
-                // Reverse order to handle $10 before $1
                 result = result.replace(&format!("${i}"), "?");
             }
             result

@@ -244,7 +244,7 @@ async fn apply_labels(state: &AppState, payload: &IngestBody) -> Result<i64, App
         .bind(&unsigned.uri)
         .bind(&unsigned.cid)
         .bind(&unsigned.val)
-        .bind(unsigned.neg)
+        .bind(unsigned.neg as i32)
         .bind(&now_str)
         .bind::<Option<String>>(None)
         .bind(&sig)

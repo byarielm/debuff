@@ -182,10 +182,10 @@ pub async fn update_webhook(
          WHERE id = $5",
         backend,
     ))
-    .bind(active)
-    .bind(auto_accept)
-    .bind(auto_label)
-    .bind(requires_review)
+    .bind(active as i32)
+    .bind(auto_accept as i32)
+    .bind(auto_label as i32)
+    .bind(requires_review as i32)
     .bind(ws_id)
     .execute(&state.db)
     .await

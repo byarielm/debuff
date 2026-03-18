@@ -1,15 +1,15 @@
 INSERT INTO label_definitions (identifier, severity, blurs, default_setting, adult_only, builtin) VALUES
-    ('!hide', 'alert', 'content', 'hide', false, true),
-    ('!no-promote', 'none', 'none', 'hide', false, true),
-    ('!warn', 'alert', 'content', 'warn', false, true),
-    ('!no-unauthenticated', 'none', 'none', 'hide', false, true),
-    ('dmca-violation', 'alert', 'content', 'hide', false, true),
-    ('doxxing', 'alert', 'content', 'hide', false, true),
-    ('porn', 'alert', 'media', 'hide', true, true),
-    ('sexual', 'alert', 'media', 'warn', true, true),
-    ('nudity', 'alert', 'media', 'warn', true, true),
-    ('nsfl', 'alert', 'media', 'warn', false, true),
-    ('gore', 'alert', 'media', 'warn', false, true);
+    ('!hide', 'alert', 'content', 'hide', 0, 1),
+    ('!no-promote', 'none', 'none', 'hide', 0, 1),
+    ('!warn', 'alert', 'content', 'warn', 0, 1),
+    ('!no-unauthenticated', 'none', 'none', 'hide', 0, 1),
+    ('dmca-violation', 'alert', 'content', 'hide', 0, 1),
+    ('doxxing', 'alert', 'content', 'hide', 0, 1),
+    ('porn', 'alert', 'media', 'hide', 1, 1),
+    ('sexual', 'alert', 'media', 'warn', 1, 1),
+    ('nudity', 'alert', 'media', 'warn', 1, 1),
+    ('nsfl', 'alert', 'media', 'warn', 0, 1),
+    ('gore', 'alert', 'media', 'warn', 0, 1);
 
 INSERT INTO label_definition_locales (definition_id, lang, name, description) VALUES
     ((SELECT id FROM label_definitions WHERE identifier = '!hide'), 'en', 'Hide', 'Hides the content entirely'),

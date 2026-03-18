@@ -87,14 +87,28 @@ pub async fn query_labels(
     }
 
     let mut binds: Vec<BindVal> = Vec::new();
+    let mut param_idx = 0usize;
+    let is_postgres = state.config.database.backend == crate::config::DatabaseBackend::Postgres;
 
-    let now_str = crate::db::now_rfc3339();
+    let mut placeholder = || -> String {
+        param_idx += 1;
+        if is_postgres {
+            format!("${param_idx}")
+        } else {
+            "?".to_string()
+        }
+    };
+
+    let now_expr = if is_postgres {
+        "NOW()::TEXT"
+    } else {
+        "datetime('now')"
+    };
 
     // Rebuild SQL
-    let mut sql = String::from(
-        "SELECT seq, src, uri, cid, val, neg, cts, exp, sig FROM labels WHERE neg = 0 AND (exp IS NULL OR exp > ?) ",
+    let mut sql = format!(
+        "SELECT seq, src, uri, cid, val, neg, cts, exp, sig FROM labels WHERE neg = 0 AND (exp IS NULL OR exp > {now_expr}) ",
     );
-    binds.push(BindVal::Text(now_str));
 
     // URI patterns
     sql.push_str("AND (");
@@ -104,10 +118,10 @@ pub async fn query_labels(
         }
         if pattern.ends_with('*') {
             let prefix = &pattern[..pattern.len() - 1];
-            sql.push_str("uri LIKE ?");
+            sql.push_str(&format!("uri LIKE {}", placeholder()));
             binds.push(BindVal::Text(format!("{prefix}%")));
         } else {
-            sql.push_str("uri = ?");
+            sql.push_str(&format!("uri = {}", placeholder()));
             binds.push(BindVal::Text(pattern.clone()));
         }
     }
@@ -122,7 +136,7 @@ pub async fn query_labels(
             if i > 0 {
                 sql.push(',');
             }
-            sql.push('?');
+            sql.push_str(&placeholder());
             binds.push(BindVal::Text(src.clone()));
         }
         sql.push_str(") ");
@@ -130,12 +144,12 @@ pub async fn query_labels(
 
     // Cursor
     if let Some(cursor_val) = cursor_seq {
-        sql.push_str("AND seq > ? ");
+        sql.push_str(&format!("AND seq > {} ", placeholder()));
         binds.push(BindVal::Int(cursor_val));
     }
 
     // Limit
-    sql.push_str("LIMIT ?");
+    sql.push_str(&format!("LIMIT {}", placeholder()));
     binds.push(BindVal::Int(limit));
 
     // Build the sqlx query with dynamic binds

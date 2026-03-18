@@ -55,14 +55,12 @@ impl TestApp {
         };
 
         // Seed admin moderator
-        let now = debuff::db::now_rfc3339();
         sqlx::query(&adapt_sql(
-            "INSERT INTO moderators (did, role, created_at) VALUES ($1, 'admin', $2) \
+            "INSERT INTO moderators (did, role) VALUES ($1, 'admin') \
              ON CONFLICT (did) DO NOTHING",
             db_backend.clone(),
         ))
         .bind(ADMIN_DID)
-        .bind(&now)
         .execute(&pool)
         .await
         .expect("failed to seed admin moderator");
@@ -228,16 +226,14 @@ impl TestApp {
 
     /// Seed a moderator with the given DID and role.
     pub async fn seed_moderator(&self, did: &str, role: &str) {
-        let now = debuff::db::now_rfc3339();
         let backend = self.state.config.database.backend.clone();
         sqlx::query(&adapt_sql(
-            "INSERT INTO moderators (did, role, created_at) VALUES ($1, $2, $3) \
-             ON CONFLICT (did) DO UPDATE SET role = $2",
+            "INSERT INTO moderators (did, role) VALUES ($1, $2) \
+             ON CONFLICT (did) DO UPDATE SET role = EXCLUDED.role",
             backend,
         ))
         .bind(did)
         .bind(role)
-        .bind(&now)
         .execute(&self.pool)
         .await
         .expect("failed to seed moderator");
@@ -245,16 +241,14 @@ impl TestApp {
 
     /// Seed a custom label definition and return its database id.
     pub async fn seed_definition(&self, identifier: &str) -> i64 {
-        let now = debuff::db::now_rfc3339();
         let backend = self.state.config.database.backend.clone();
         sqlx::query(&adapt_sql(
-            "INSERT INTO label_definitions (identifier, severity, blurs, default_setting, adult_only, created_at) \
-             VALUES ($1, 'inform', 'none', 'warn', 0, $2) \
+            "INSERT INTO label_definitions (identifier, severity, blurs, default_setting, adult_only) \
+             VALUES ($1, 'inform', 'none', 'warn', 0) \
              ON CONFLICT (identifier) DO NOTHING",
             backend.clone(),
         ))
         .bind(identifier)
-        .bind(&now)
         .execute(&self.pool)
         .await
         .expect("failed to seed definition");
@@ -272,17 +266,15 @@ impl TestApp {
 
     /// Seed a report and return its database id.
     pub async fn seed_report(&self, uri: &str, did: &str, status: &str) -> i64 {
-        let now = debuff::db::now_rfc3339();
         let backend = self.state.config.database.backend.clone();
         sqlx::query(&adapt_sql(
-            "INSERT INTO reports (subject_uri, subject_did, reported_by, reason_type, reason, status, created_at) \
-             VALUES ($1, $2, 'did:plc:reporter', 'com.atproto.moderation.defs#reasonSpam', 'test', $3, $4)",
+            "INSERT INTO reports (subject_uri, subject_did, reported_by, reason_type, reason, status) \
+             VALUES ($1, $2, 'did:plc:reporter', 'com.atproto.moderation.defs#reasonSpam', 'test', $3)",
             backend.clone(),
         ))
         .bind(uri)
         .bind(did)
         .bind(status)
-        .bind(&now)
         .execute(&self.pool)
         .await
         .expect("failed to seed report");
