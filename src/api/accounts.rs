@@ -120,17 +120,18 @@ pub async fn get_account(
 
     let backend = state.config.database.backend.clone();
     #[allow(clippy::type_complexity)]
-    let rows: Vec<(String, String, String, i32, String, Option<String>, Vec<u8>)> = sqlx::query_as(&adapt_sql(
-        "SELECT src, uri, val, neg, cts, exp, sig
+    let rows: Vec<(String, String, String, i32, String, Option<String>, Vec<u8>)> =
+        sqlx::query_as(&adapt_sql(
+            "SELECT src, uri, val, neg, cts, exp, sig
              FROM labels
              WHERE uri = $1
              ORDER BY cts ASC",
-        backend,
-    ))
-    .bind(&did)
-    .fetch_all(&state.db)
-    .await
-    .map_err(|e| AppError::Internal(format!("failed to query labels: {e}")))?;
+            backend,
+        ))
+        .bind(&did)
+        .fetch_all(&state.db)
+        .await
+        .map_err(|e| AppError::Internal(format!("failed to query labels: {e}")))?;
 
     let labels: Vec<LabelRow> = rows
         .iter()

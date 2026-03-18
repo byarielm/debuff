@@ -62,11 +62,13 @@ impl Store<Did, Session> for DbSessionStore {
     type Error = StoreError;
 
     async fn get(&self, key: &Did) -> Result<Option<Session>, Self::Error> {
-        let row: Option<(String,)> =
-            sqlx::query_as(&adapt_sql("SELECT session_data FROM oauth_sessions WHERE did = $1", self.backend.clone()))
-                .bind(key.as_ref())
-                .fetch_optional(&self.pool)
-                .await?;
+        let row: Option<(String,)> = sqlx::query_as(&adapt_sql(
+            "SELECT session_data FROM oauth_sessions WHERE did = $1",
+            self.backend.clone(),
+        ))
+        .bind(key.as_ref())
+        .fetch_optional(&self.pool)
+        .await?;
 
         match row {
             Some((data,)) => Ok(Some(serde_json::from_str(&data)?)),
@@ -91,10 +93,13 @@ impl Store<Did, Session> for DbSessionStore {
     }
 
     async fn del(&self, key: &Did) -> Result<(), Self::Error> {
-        sqlx::query(&adapt_sql("DELETE FROM oauth_sessions WHERE did = $1", self.backend.clone()))
-            .bind(key.as_ref())
-            .execute(&self.pool)
-            .await?;
+        sqlx::query(&adapt_sql(
+            "DELETE FROM oauth_sessions WHERE did = $1",
+            self.backend.clone(),
+        ))
+        .bind(key.as_ref())
+        .execute(&self.pool)
+        .await?;
         Ok(())
     }
 
@@ -126,11 +131,13 @@ impl Store<String, InternalStateData> for DbStateStore {
     type Error = StoreError;
 
     async fn get(&self, key: &String) -> Result<Option<InternalStateData>, Self::Error> {
-        let row: Option<(String,)> =
-            sqlx::query_as(&adapt_sql("SELECT state_data FROM oauth_state WHERE state_key = $1", self.backend.clone()))
-                .bind(key)
-                .fetch_optional(&self.pool)
-                .await?;
+        let row: Option<(String,)> = sqlx::query_as(&adapt_sql(
+            "SELECT state_data FROM oauth_state WHERE state_key = $1",
+            self.backend.clone(),
+        ))
+        .bind(key)
+        .fetch_optional(&self.pool)
+        .await?;
 
         match row {
             Some((data,)) => Ok(Some(serde_json::from_str(&data)?)),
@@ -153,10 +160,13 @@ impl Store<String, InternalStateData> for DbStateStore {
     }
 
     async fn del(&self, key: &String) -> Result<(), Self::Error> {
-        sqlx::query(&adapt_sql("DELETE FROM oauth_state WHERE state_key = $1", self.backend.clone()))
-            .bind(key)
-            .execute(&self.pool)
-            .await?;
+        sqlx::query(&adapt_sql(
+            "DELETE FROM oauth_state WHERE state_key = $1",
+            self.backend.clone(),
+        ))
+        .bind(key)
+        .execute(&self.pool)
+        .await?;
         Ok(())
     }
 

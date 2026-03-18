@@ -13,10 +13,10 @@ use tower::ServiceExt;
 use wiremock::MockServer;
 
 use debuff::AppState;
-use debuff::db::adapt_sql;
 use debuff::auth::COOKIE_NAME;
 use debuff::auth::oauth_store::{DbSessionStore, DbStateStore};
 use debuff::config::{Config, DatabaseBackend, DatabaseConfig, LabelerConfig, ServerConfig};
+use debuff::db::adapt_sql;
 use debuff::signing::LabelSigner;
 
 use super::db::{self, Backend};

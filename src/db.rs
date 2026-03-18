@@ -27,7 +27,10 @@ pub fn adapt_sql(sql: &str, backend: DatabaseBackend) -> String {
 #[macro_export]
 macro_rules! sql_query {
     ($state:expr, $sql:expr) => {
-        sqlx::query(&$crate::db::adapt_sql($sql, $state.config.database.backend.clone()))
+        sqlx::query(&$crate::db::adapt_sql(
+            $sql,
+            $state.config.database.backend.clone(),
+        ))
     };
 }
 
@@ -36,7 +39,10 @@ macro_rules! sql_query {
 #[macro_export]
 macro_rules! sql_query_as {
     ($state:expr, $type:ty, $sql:expr) => {
-        sqlx::query_as::<_, $type>(&$crate::db::adapt_sql($sql, $state.config.database.backend.clone()))
+        sqlx::query_as::<_, $type>(&$crate::db::adapt_sql(
+            $sql,
+            $state.config.database.backend.clone(),
+        ))
     };
 }
 

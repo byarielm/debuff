@@ -234,10 +234,7 @@ async fn set_labeler_did(
         std::fs::write("data/signing_key.pem", &pem)
             .map_err(|e| AppError::Internal(format!("Failed to write signing key: {e}")))?;
 
-        config_updates.push((
-            "labeler.signing_key_path",
-            "data/signing_key.pem".into(),
-        ));
+        config_updates.push(("labeler.signing_key_path", "data/signing_key.pem".into()));
         true
     } else {
         false
@@ -372,11 +369,14 @@ async fn labeler_auth_confirm(
     // No ModeratorAuth here — the cookie currently has the labeler's DID (not a moderator).
     // Instead, verify the restore_did is an admin moderator.
     let backend = state.config.database.backend.clone();
-    let role: Option<(String,)> = sqlx::query_as(&adapt_sql("SELECT role FROM moderators WHERE did = $1", backend.clone()))
-        .bind(&body.restore_did)
-        .fetch_optional(&state.db)
-        .await
-        .map_err(|e| AppError::Internal(format!("Failed to verify admin: {e}")))?;
+    let role: Option<(String,)> = sqlx::query_as(&adapt_sql(
+        "SELECT role FROM moderators WHERE did = $1",
+        backend.clone(),
+    ))
+    .bind(&body.restore_did)
+    .fetch_optional(&state.db)
+    .await
+    .map_err(|e| AppError::Internal(format!("Failed to verify admin: {e}")))?;
 
     match role {
         Some((r,)) if r == "admin" => {}
@@ -384,11 +384,14 @@ async fn labeler_auth_confirm(
     }
 
     // Verify the DID has an OAuth session in the database
-    let has_session: Option<(i32,)> = sqlx::query_as(&adapt_sql("SELECT 1 FROM oauth_sessions WHERE did = $1", backend))
-        .bind(&body.did)
-        .fetch_optional(&state.db)
-        .await
-        .map_err(|e| AppError::Internal(format!("Failed to query oauth session: {e}")))?;
+    let has_session: Option<(i32,)> = sqlx::query_as(&adapt_sql(
+        "SELECT 1 FROM oauth_sessions WHERE did = $1",
+        backend,
+    ))
+    .bind(&body.did)
+    .fetch_optional(&state.db)
+    .await
+    .map_err(|e| AppError::Internal(format!("Failed to query oauth session: {e}")))?;
 
     if has_session.is_none() {
         return Err(AppError::BadRequest(

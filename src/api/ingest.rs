@@ -194,11 +194,14 @@ pub async fn ingest(
         let labels_applied = apply_labels(&state, &payload).await?;
 
         if labels_applied > 0 {
-            sqlx::query(&adapt_sql("UPDATE reports SET auto_labeled = 1 WHERE id = $1", backend))
-                .bind(report_id)
-                .execute(&state.db)
-                .await
-                .map_err(|e| AppError::Internal(format!("failed to update auto_labeled: {e}")))?;
+            sqlx::query(&adapt_sql(
+                "UPDATE reports SET auto_labeled = 1 WHERE id = $1",
+                backend,
+            ))
+            .bind(report_id)
+            .execute(&state.db)
+            .await
+            .map_err(|e| AppError::Internal(format!("failed to update auto_labeled: {e}")))?;
         }
     }
 

@@ -79,11 +79,14 @@ async fn callback(
 
     // If this DID is not a moderator, redirect to /setup (likely a labeler OAuth during setup)
     let backend = state.config.database.backend.clone();
-    let is_moderator: Option<(i32,)> = sqlx::query_as(&adapt_sql("SELECT 1 FROM moderators WHERE did = $1", backend.clone()))
-        .bind(did.as_ref())
-        .fetch_optional(&state.db)
-        .await
-        .unwrap_or(None);
+    let is_moderator: Option<(i32,)> = sqlx::query_as(&adapt_sql(
+        "SELECT 1 FROM moderators WHERE did = $1",
+        backend.clone(),
+    ))
+    .bind(did.as_ref())
+    .fetch_optional(&state.db)
+    .await
+    .unwrap_or(None);
 
     let redirect = if is_moderator.is_some() {
         "/dashboard/queue/"
@@ -126,11 +129,14 @@ async fn me(
     let did = cookie.value().to_string();
 
     let backend = state.config.database.backend.clone();
-    let role: Option<(String,)> = sqlx::query_as(&adapt_sql("SELECT role FROM moderators WHERE did = $1", backend))
-        .bind(&did)
-        .fetch_optional(&state.db)
-        .await
-        .map_err(|e| AppError::Internal(format!("role lookup failed: {e}")))?;
+    let role: Option<(String,)> = sqlx::query_as(&adapt_sql(
+        "SELECT role FROM moderators WHERE did = $1",
+        backend,
+    ))
+    .bind(&did)
+    .fetch_optional(&state.db)
+    .await
+    .map_err(|e| AppError::Internal(format!("role lookup failed: {e}")))?;
 
     Ok(Json(MeResponse {
         did,

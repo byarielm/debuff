@@ -315,12 +315,14 @@ pub async fn get_queue_item(
     // Fetch labels on the subject
     let subject_key = report.1.as_deref().or(report.3.as_deref()).unwrap_or("");
 
-    let label_rows: Vec<(i64, String, i32, String)> =
-        sqlx::query_as(&adapt_sql("SELECT id, val, neg, cts FROM labels WHERE uri = $1 ORDER BY cts", backend))
-            .bind(subject_key)
-            .fetch_all(&state.db)
-            .await
-            .map_err(|e| AppError::Internal(format!("failed to fetch labels: {e}")))?;
+    let label_rows: Vec<(i64, String, i32, String)> = sqlx::query_as(&adapt_sql(
+        "SELECT id, val, neg, cts FROM labels WHERE uri = $1 ORDER BY cts",
+        backend,
+    ))
+    .bind(subject_key)
+    .fetch_all(&state.db)
+    .await
+    .map_err(|e| AppError::Internal(format!("failed to fetch labels: {e}")))?;
 
     let labels: Vec<SubjectLabel> = label_rows
         .into_iter()
@@ -367,13 +369,16 @@ pub async fn update_status(
 
     let backend = state.config.database.backend.clone();
     let now_str = crate::db::now_rfc3339();
-    let result = sqlx::query(&adapt_sql("UPDATE reports SET status = $1, updated_at = $2 WHERE id = $3", backend))
-        .bind(&body.status)
-        .bind(&now_str)
-        .bind(id)
-        .execute(&state.db)
-        .await
-        .map_err(|e| AppError::Internal(format!("failed to update status: {e}")))?;
+    let result = sqlx::query(&adapt_sql(
+        "UPDATE reports SET status = $1, updated_at = $2 WHERE id = $3",
+        backend,
+    ))
+    .bind(&body.status)
+    .bind(&now_str)
+    .bind(id)
+    .execute(&state.db)
+    .await
+    .map_err(|e| AppError::Internal(format!("failed to update status: {e}")))?;
 
     if result.rows_affected() == 0 {
         return Err(AppError::NotFound);
@@ -395,11 +400,14 @@ pub async fn assign_moderator(
     let backend = state.config.database.backend.clone();
     // Validate that the DID belongs to a known moderator
     if let Some(ref did) = body.did {
-        let exists: Option<(String,)> = sqlx::query_as(&adapt_sql("SELECT did FROM moderators WHERE did = $1", backend.clone()))
-            .bind(did)
-            .fetch_optional(&state.db)
-            .await
-            .map_err(|e| AppError::Internal(format!("failed to check moderator: {e}")))?;
+        let exists: Option<(String,)> = sqlx::query_as(&adapt_sql(
+            "SELECT did FROM moderators WHERE did = $1",
+            backend.clone(),
+        ))
+        .bind(did)
+        .fetch_optional(&state.db)
+        .await
+        .map_err(|e| AppError::Internal(format!("failed to check moderator: {e}")))?;
 
         if exists.is_none() {
             return Err(AppError::BadRequest(format!(
@@ -410,13 +418,16 @@ pub async fn assign_moderator(
     }
 
     let now_str = crate::db::now_rfc3339();
-    let result = sqlx::query(&adapt_sql("UPDATE reports SET assigned_to = $1, updated_at = $2 WHERE id = $3", backend))
-        .bind(&body.did)
-        .bind(&now_str)
-        .bind(id)
-        .execute(&state.db)
-        .await
-        .map_err(|e| AppError::Internal(format!("failed to assign moderator: {e}")))?;
+    let result = sqlx::query(&adapt_sql(
+        "UPDATE reports SET assigned_to = $1, updated_at = $2 WHERE id = $3",
+        backend,
+    ))
+    .bind(&body.did)
+    .bind(&now_str)
+    .bind(id)
+    .execute(&state.db)
+    .await
+    .map_err(|e| AppError::Internal(format!("failed to assign moderator: {e}")))?;
 
     if result.rows_affected() == 0 {
         return Err(AppError::NotFound);
@@ -487,11 +498,14 @@ pub async fn add_note(
 
     let backend = state.config.database.backend.clone();
     // Verify the report exists
-    let exists: Option<(i64,)> = sqlx::query_as(&adapt_sql("SELECT id FROM reports WHERE id = $1", backend.clone()))
-        .bind(report_id)
-        .fetch_optional(&state.db)
-        .await
-        .map_err(|e| AppError::Internal(format!("failed to check report: {e}")))?;
+    let exists: Option<(i64,)> = sqlx::query_as(&adapt_sql(
+        "SELECT id FROM reports WHERE id = $1",
+        backend.clone(),
+    ))
+    .bind(report_id)
+    .fetch_optional(&state.db)
+    .await
+    .map_err(|e| AppError::Internal(format!("failed to check report: {e}")))?;
 
     if exists.is_none() {
         return Err(AppError::NotFound);

@@ -110,7 +110,6 @@ impl Default for LabelerConfig {
     }
 }
 
-
 impl Config {
     pub fn config_path() -> PathBuf {
         std::env::var("DEBUFF_CONFIG")

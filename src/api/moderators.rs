@@ -100,12 +100,9 @@ pub(super) async fn remove_moderator(
     .await
     .map_err(|e| AppError::Internal(format!("failed to clear assignments: {e}")))?;
 
-    let result = sqlx::query(&adapt_sql(
-        "DELETE FROM moderators WHERE did = $1",
-        backend,
-    ))
-    .bind(&did)
-    .execute(&state.db)
+    let result = sqlx::query(&adapt_sql("DELETE FROM moderators WHERE did = $1", backend))
+        .bind(&did)
+        .execute(&state.db)
         .await
         .map_err(|e| AppError::Internal(format!("failed to remove moderator: {e}")))?;
 

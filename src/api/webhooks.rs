@@ -213,11 +213,14 @@ pub async fn delete_webhook(
     }
 
     let backend = state.config.database.backend.clone();
-    let result = sqlx::query(&adapt_sql("DELETE FROM webhook_sources WHERE id = $1", backend))
-        .bind(id)
-        .execute(&state.db)
-        .await
-        .map_err(|e| AppError::Internal(format!("failed to delete webhook source: {e}")))?;
+    let result = sqlx::query(&adapt_sql(
+        "DELETE FROM webhook_sources WHERE id = $1",
+        backend,
+    ))
+    .bind(id)
+    .execute(&state.db)
+    .await
+    .map_err(|e| AppError::Internal(format!("failed to delete webhook source: {e}")))?;
 
     if result.rows_affected() == 0 {
         return Err(AppError::NotFound);

@@ -98,12 +98,14 @@ impl FromRequestParts<AppState> for ModeratorAuth {
             }
         }
 
-        let row: Option<(String, String)> =
-            sqlx::query_as(&adapt_sql("SELECT did, role FROM moderators WHERE did = $1", backend.clone()))
-                .bind(&did)
-                .fetch_optional(&state.db)
-                .await
-                .map_err(|e| AppError::Internal(format!("moderator lookup failed: {e}")))?;
+        let row: Option<(String, String)> = sqlx::query_as(&adapt_sql(
+            "SELECT did, role FROM moderators WHERE did = $1",
+            backend.clone(),
+        ))
+        .bind(&did)
+        .fetch_optional(&state.db)
+        .await
+        .map_err(|e| AppError::Internal(format!("moderator lookup failed: {e}")))?;
 
         let Some((mod_did, role)) = row else {
             return Err(AppError::Forbidden);
@@ -112,7 +114,10 @@ impl FromRequestParts<AppState> for ModeratorAuth {
         let db = state.db.clone();
         let update_did = mod_did.clone();
         let now_str = crate::db::now_rfc3339();
-        let update_sql = adapt_sql("UPDATE moderators SET last_used_at = $1 WHERE did = $2", backend);
+        let update_sql = adapt_sql(
+            "UPDATE moderators SET last_used_at = $1 WHERE did = $2",
+            backend,
+        );
         tokio::spawn(async move {
             let _ = sqlx::query(&update_sql)
                 .bind(&now_str)

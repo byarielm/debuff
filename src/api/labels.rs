@@ -63,12 +63,14 @@ pub async fn apply_labels(
     let backend = state.config.database.backend.clone();
     // Validate all vals exist in label_definitions
     for val in &body.vals {
-        let exists: Option<(i32,)> =
-            sqlx::query_as(&adapt_sql("SELECT id FROM label_definitions WHERE identifier = $1", backend.clone()))
-                .bind(val)
-                .fetch_optional(&state.db)
-                .await
-                .map_err(|e| AppError::Internal(format!("failed to check definition: {e}")))?;
+        let exists: Option<(i32,)> = sqlx::query_as(&adapt_sql(
+            "SELECT id FROM label_definitions WHERE identifier = $1",
+            backend.clone(),
+        ))
+        .bind(val)
+        .fetch_optional(&state.db)
+        .await
+        .map_err(|e| AppError::Internal(format!("failed to check definition: {e}")))?;
 
         if exists.is_none() {
             return Err(AppError::BadRequest(format!(
