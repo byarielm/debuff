@@ -1,3 +1,4 @@
+#[allow(unused_macros)]
 macro_rules! dual_db_test {
     ($name:ident, $body:expr) => {
         paste::paste! {
@@ -23,4 +24,5 @@ macro_rules! dual_db_test {
     };
 }
 
+#[allow(unused_imports)]
 pub(crate) use dual_db_test;
