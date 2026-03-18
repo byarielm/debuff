@@ -161,15 +161,15 @@ impl Config {
     /// Apply database settings (Phase 2 — after DB connection).
     /// Only fills in values that are still at their defaults.
     pub fn apply_db_settings(&mut self, settings: &std::collections::HashMap<String, String>) {
-        if self.labeler.did == default_labeler_did() {
-            if let Some(v) = settings.get("labeler.did") {
-                self.labeler.did = v.clone();
-            }
+        if self.labeler.did == default_labeler_did()
+            && let Some(v) = settings.get("labeler.did")
+        {
+            self.labeler.did = v.clone();
         }
-        if self.labeler.signing_key.is_none() {
-            if let Some(v) = settings.get("labeler.signing_key") {
-                self.labeler.signing_key = Some(v.clone());
-            }
+        if self.labeler.signing_key.is_none()
+            && let Some(v) = settings.get("labeler.signing_key")
+        {
+            self.labeler.signing_key = Some(v.clone());
         }
     }
 
@@ -180,14 +180,14 @@ impl Config {
             self.server.host = v;
         }
         // DEBUFF_PORT overrides PORT
-        if let Ok(v) = std::env::var("DEBUFF_PORT") {
-            if let Ok(p) = v.parse() {
-                self.server.port = p;
-            }
-        } else if let Ok(v) = std::env::var("PORT") {
-            if let Ok(p) = v.parse() {
-                self.server.port = p;
-            }
+        if let Ok(v) = std::env::var("DEBUFF_PORT")
+            && let Ok(p) = v.parse()
+        {
+            self.server.port = p;
+        } else if let Ok(v) = std::env::var("PORT")
+            && let Ok(p) = v.parse()
+        {
+            self.server.port = p;
         }
         if let Ok(v) = std::env::var("DEBUFF_PUBLIC_URL") {
             self.server.public_url = v;
