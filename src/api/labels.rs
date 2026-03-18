@@ -6,6 +6,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::AppState;
 use crate::auth::ModeratorAuth;
+use crate::db::adapt_sql;
 use crate::error::AppError;
 use crate::signing::UnsignedLabel;
 
@@ -59,10 +60,11 @@ pub async fn apply_labels(
         return Err(AppError::BadRequest("vals must not be empty".into()));
     }
 
+    let backend = state.config.database.backend.clone();
     // Validate all vals exist in label_definitions
     for val in &body.vals {
         let exists: Option<(i32,)> =
-            sqlx::query_as("SELECT id FROM label_definitions WHERE identifier = ?")
+            sqlx::query_as(&adapt_sql("SELECT id FROM label_definitions WHERE identifier = $1", backend.clone()))
                 .bind(val)
                 .fetch_optional(&state.db)
                 .await
@@ -96,13 +98,14 @@ pub async fn apply_labels(
             .sign_label(&unsigned)
             .map_err(|e| AppError::Internal(format!("signing failed: {e}")))?;
 
-        let row: (i64, String) = sqlx::query_as(
+        let row: (i64, String) = sqlx::query_as(&adapt_sql(
             "INSERT INTO labels (src, uri, cid, val, neg, cts, sig)
-             VALUES (?, ?, ?, ?, false, ?, ?)
+             VALUES ($1, $2, $3, $4, false, $5, $6)
              ON CONFLICT (src, uri, val) DO UPDATE
              SET neg = false, cid = EXCLUDED.cid, cts = EXCLUDED.cts, sig = EXCLUDED.sig
              RETURNING seq, cts",
-        )
+            backend.clone(),
+        ))
         .bind(&state.config.labeler.did)
         .bind(&body.uri)
         .bind(&body.cid)
@@ -141,6 +144,7 @@ pub async fn negate_labels(
         return Err(AppError::BadRequest("vals must not be empty".into()));
     }
 
+    let backend = state.config.database.backend.clone();
     let now = Utc::now();
     let now_str = now.to_rfc3339();
     let mut results = Vec::with_capacity(body.vals.len());
@@ -162,13 +166,14 @@ pub async fn negate_labels(
             .sign_label(&unsigned)
             .map_err(|e| AppError::Internal(format!("signing failed: {e}")))?;
 
-        let row: (i64, String) = sqlx::query_as(
+        let row: (i64, String) = sqlx::query_as(&adapt_sql(
             "INSERT INTO labels (src, uri, cid, val, neg, cts, sig)
-             VALUES (?, ?, NULL, ?, true, ?, ?)
+             VALUES ($1, $2, NULL, $3, true, $4, $5)
              ON CONFLICT (src, uri, val) DO UPDATE
              SET neg = true, cid = NULL, cts = EXCLUDED.cts, sig = EXCLUDED.sig
              RETURNING seq, cts",
-        )
+            backend.clone(),
+        ))
         .bind(&state.config.labeler.did)
         .bind(&body.uri)
         .bind(val)
@@ -202,6 +207,8 @@ pub async fn query_labels(
     _auth: ModeratorAuth,
     Query(params): Query<LabelsQuery>,
 ) -> Result<Json<Vec<LabelResponse>>, AppError> {
+    let backend = state.config.database.backend.clone();
+    #[allow(clippy::type_complexity)]
     let rows: Vec<(
         String,
         String,
@@ -211,12 +218,13 @@ pub async fn query_labels(
         String,
         Option<String>,
         Vec<u8>,
-    )> = sqlx::query_as(
+    )> = sqlx::query_as(&adapt_sql(
         "SELECT src, uri, cid, val, neg, cts, exp, sig
              FROM labels
-             WHERE uri = ? AND neg = false
+             WHERE uri = $1 AND neg = false
              ORDER BY cts",
-    )
+        backend,
+    ))
     .bind(&params.uri)
     .fetch_all(&state.db)
     .await

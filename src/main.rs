@@ -86,8 +86,8 @@ async fn main() {
                 ]),
             },
             keys: None,
-            state_store: DbStateStore::new(db.clone()),
-            session_store: DbSessionStore::new(db.clone()),
+            state_store: DbStateStore::new(db.clone(), config.database.backend.clone()),
+            session_store: DbSessionStore::new(db.clone(), config.database.backend.clone()),
             resolver: resolver_config,
         })
         .expect("Failed to create OAuth client")
@@ -111,8 +111,8 @@ async fn main() {
                 token_endpoint_auth_signing_alg: None,
             },
             keys: None,
-            state_store: DbStateStore::new(db.clone()),
-            session_store: DbSessionStore::new(db.clone()),
+            state_store: DbStateStore::new(db.clone(), config.database.backend.clone()),
+            session_store: DbSessionStore::new(db.clone(), config.database.backend.clone()),
             resolver: resolver_config,
         })
         .expect("Failed to create OAuth client")

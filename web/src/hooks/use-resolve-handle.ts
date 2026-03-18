@@ -26,16 +26,15 @@ function resolveHandle(did: string): Promise<string | null> {
 }
 
 export function useResolveHandle(did: string | null | undefined): string | null {
-  const cached = did ? handleCache.get(did) ?? null : null
-  const [handle, setHandle] = useState<string | null>(cached)
+  const [handle, setHandle] = useState<string | null>(() => {
+    if (!did) return null
+    return handleCache.get(did) ?? null
+  })
 
   useEffect(() => {
     if (!did) return
-    const cachedHandle = handleCache.get(did)
-    if (cachedHandle) {
-      setHandle(cachedHandle)
-      return
-    }
+    // If already cached, state was initialized with it
+    if (handleCache.has(did)) return
     resolveHandle(did).then((h) => {
       if (h) setHandle(h)
     })
@@ -45,6 +44,7 @@ export function useResolveHandle(did: string | null | undefined): string | null 
 }
 
 export function useResolveHandles(dids: string[]): Map<string, string> {
+  const didsKey = dids.join(",")
   const [handles, setHandles] = useState<Map<string, string>>(() => {
     const initial = new Map<string, string>()
     for (const did of dids) {
@@ -56,16 +56,8 @@ export function useResolveHandles(dids: string[]): Map<string, string> {
 
   useEffect(() => {
     const unresolved = dids.filter((did) => !handleCache.has(did))
-    if (unresolved.length === 0) {
-      // All cached, sync state
-      const all = new Map<string, string>()
-      for (const did of dids) {
-        const cached = handleCache.get(did)
-        if (cached) all.set(did, cached)
-      }
-      setHandles(all)
-      return
-    }
+    // If all are cached, state was already initialized correctly
+    if (unresolved.length === 0) return
 
     Promise.all(unresolved.map((did) => resolveHandle(did))).then(() => {
       const all = new Map<string, string>()
@@ -75,7 +67,7 @@ export function useResolveHandles(dids: string[]): Map<string, string> {
       }
       setHandles(all)
     })
-  }, [dids.join(",")])
+  }, [dids, didsKey])
 
   return handles
 }

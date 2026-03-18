@@ -7,6 +7,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::AppState;
 use crate::auth::ModeratorAuth;
+use crate::db::adapt_sql;
 use crate::error::AppError;
 
 #[derive(Serialize)]
@@ -104,11 +105,13 @@ pub async fn create_webhook(
     }
 
     let secret = generate_secret();
+    let backend = state.config.database.backend.clone();
 
-    let row: (i32, String, String, i32, i32, i32, i32, String) = sqlx::query_as(
-        "INSERT INTO webhook_sources (name, secret) VALUES (?, ?) \
+    let row: (i32, String, String, i32, i32, i32, i32, String) = sqlx::query_as(&adapt_sql(
+        "INSERT INTO webhook_sources (name, secret) VALUES ($1, $2) \
          RETURNING id, name, secret, active, auto_accept, auto_label, requires_review, created_at",
-    )
+        backend,
+    ))
     .bind(&body.name)
     .bind(&secret)
     .fetch_one(&state.db)
@@ -141,10 +144,12 @@ pub async fn update_webhook(
         return Err(AppError::Forbidden);
     }
 
-    let row: Option<(i32, String, i32, i32, i32, i32, String)> = sqlx::query_as(
+    let backend = state.config.database.backend.clone();
+    let row: Option<(i32, String, i32, i32, i32, i32, String)> = sqlx::query_as(&adapt_sql(
         "SELECT id, name, active, auto_accept, auto_label, requires_review, created_at \
-         FROM webhook_sources WHERE id = ?",
-    )
+         FROM webhook_sources WHERE id = $1",
+        backend.clone(),
+    ))
     .bind(id)
     .fetch_optional(&state.db)
     .await
@@ -171,11 +176,12 @@ pub async fn update_webhook(
         requires_review = v;
     }
 
-    sqlx::query(
+    sqlx::query(&adapt_sql(
         "UPDATE webhook_sources \
-         SET active = ?, auto_accept = ?, auto_label = ?, requires_review = ? \
-         WHERE id = ?",
-    )
+         SET active = $1, auto_accept = $2, auto_label = $3, requires_review = $4 \
+         WHERE id = $5",
+        backend,
+    ))
     .bind(active)
     .bind(auto_accept)
     .bind(auto_label)
@@ -206,7 +212,8 @@ pub async fn delete_webhook(
         return Err(AppError::Forbidden);
     }
 
-    let result = sqlx::query("DELETE FROM webhook_sources WHERE id = ?")
+    let backend = state.config.database.backend.clone();
+    let result = sqlx::query(&adapt_sql("DELETE FROM webhook_sources WHERE id = $1", backend))
         .bind(id)
         .execute(&state.db)
         .await

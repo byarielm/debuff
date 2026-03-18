@@ -3,7 +3,7 @@ use std::sync::Arc;
 use axum::Router;
 use axum::body::Body;
 use axum::http::{Request, StatusCode};
-use cookie::{CookieJar, Key, SignedJar};
+use cookie::{CookieJar, Key};
 use http_body_util::BodyExt;
 use serde_json::Value;
 use sqlx::AnyPool;
@@ -13,9 +13,10 @@ use tower::ServiceExt;
 use wiremock::MockServer;
 
 use debuff::AppState;
+use debuff::db::adapt_sql;
 use debuff::auth::COOKIE_NAME;
 use debuff::auth::oauth_store::{DbSessionStore, DbStateStore};
-use debuff::config::{Config, DatabaseConfig, LabelerConfig, ServerConfig};
+use debuff::config::{Config, DatabaseBackend, DatabaseConfig, LabelerConfig, ServerConfig};
 use debuff::signing::LabelSigner;
 
 use super::db::{self, Backend};
@@ -48,12 +49,18 @@ impl TestApp {
         let pool = db::test_pool(backend, temp_dir.path()).await;
         db::truncate_all(&pool).await;
 
+        let db_backend = match backend {
+            Backend::Sqlite => DatabaseBackend::Sqlite,
+            Backend::Postgres => DatabaseBackend::Postgres,
+        };
+
         // Seed admin moderator
         let now = debuff::db::now_rfc3339();
-        sqlx::query(
-            "INSERT INTO moderators (did, role, created_at) VALUES (?, 'admin', ?) \
+        sqlx::query(&adapt_sql(
+            "INSERT INTO moderators (did, role, created_at) VALUES ($1, 'admin', $2) \
              ON CONFLICT (did) DO NOTHING",
-        )
+            db_backend.clone(),
+        ))
         .bind(ADMIN_DID)
         .bind(&now)
         .execute(&pool)
@@ -73,7 +80,10 @@ impl TestApp {
                 session_secret: "test-secret-at-least-64-bytes-long-for-key-derivation-to-work-ok"
                     .into(),
             },
-            database: DatabaseConfig::default(),
+            database: DatabaseConfig {
+                backend: db_backend.clone(),
+                ..DatabaseConfig::default()
+            },
             labeler: LabelerConfig {
                 did: "did:plc:testlabeler".into(),
                 signing_key_path: None,
@@ -101,8 +111,8 @@ impl TestApp {
                 scopes: Some(vec![Scope::Known(KnownScope::Atproto)]),
             },
             keys: None,
-            state_store: DbStateStore::new(pool.clone()),
-            session_store: DbSessionStore::new(pool.clone()),
+            state_store: DbStateStore::new(pool.clone(), db_backend.clone()),
+            session_store: DbSessionStore::new(pool.clone(), db_backend.clone()),
             resolver: OAuthResolverConfig {
                 did_resolver,
                 handle_resolver,
@@ -219,14 +229,15 @@ impl TestApp {
     /// Seed a moderator with the given DID and role.
     pub async fn seed_moderator(&self, did: &str, role: &str) {
         let now = debuff::db::now_rfc3339();
-        sqlx::query(
-            "INSERT INTO moderators (did, role, created_at) VALUES (?, ?, ?) \
-             ON CONFLICT (did) DO UPDATE SET role = ?",
-        )
+        let backend = self.state.config.database.backend.clone();
+        sqlx::query(&adapt_sql(
+            "INSERT INTO moderators (did, role, created_at) VALUES ($1, $2, $3) \
+             ON CONFLICT (did) DO UPDATE SET role = $2",
+            backend,
+        ))
         .bind(did)
         .bind(role)
         .bind(&now)
-        .bind(role)
         .execute(&self.pool)
         .await
         .expect("failed to seed moderator");
@@ -235,32 +246,39 @@ impl TestApp {
     /// Seed a custom label definition and return its database id.
     pub async fn seed_definition(&self, identifier: &str) -> i64 {
         let now = debuff::db::now_rfc3339();
-        sqlx::query(
+        let backend = self.state.config.database.backend.clone();
+        sqlx::query(&adapt_sql(
             "INSERT INTO label_definitions (identifier, severity, blurs, default_setting, adult_only, created_at) \
-             VALUES (?, 'inform', 'none', 'warn', 0, ?) \
+             VALUES ($1, 'inform', 'none', 'warn', 0, $2) \
              ON CONFLICT (identifier) DO NOTHING",
-        )
+            backend.clone(),
+        ))
         .bind(identifier)
         .bind(&now)
         .execute(&self.pool)
         .await
         .expect("failed to seed definition");
 
-        let row: (i64,) = sqlx::query_as("SELECT id FROM label_definitions WHERE identifier = ?")
-            .bind(identifier)
-            .fetch_one(&self.pool)
-            .await
-            .expect("failed to fetch seeded definition id");
+        let row: (i64,) = sqlx::query_as(&adapt_sql(
+            "SELECT id FROM label_definitions WHERE identifier = $1",
+            backend,
+        ))
+        .bind(identifier)
+        .fetch_one(&self.pool)
+        .await
+        .expect("failed to fetch seeded definition id");
         row.0
     }
 
     /// Seed a report and return its database id.
     pub async fn seed_report(&self, uri: &str, did: &str, status: &str) -> i64 {
         let now = debuff::db::now_rfc3339();
-        sqlx::query(
+        let backend = self.state.config.database.backend.clone();
+        sqlx::query(&adapt_sql(
             "INSERT INTO reports (subject_uri, subject_did, reported_by, reason_type, reason, status, created_at) \
-             VALUES (?, ?, 'did:plc:reporter', 'com.atproto.moderation.defs#reasonSpam', 'test', ?, ?)",
-        )
+             VALUES ($1, $2, 'did:plc:reporter', 'com.atproto.moderation.defs#reasonSpam', 'test', $3, $4)",
+            backend.clone(),
+        ))
         .bind(uri)
         .bind(did)
         .bind(status)
@@ -269,13 +287,15 @@ impl TestApp {
         .await
         .expect("failed to seed report");
 
-        let row: (i64,) =
-            sqlx::query_as("SELECT id FROM reports WHERE subject_uri = ? AND subject_did = ? ORDER BY id DESC LIMIT 1")
-                .bind(uri)
-                .bind(did)
-                .fetch_one(&self.pool)
-                .await
-                .expect("failed to fetch seeded report id");
+        let row: (i64,) = sqlx::query_as(&adapt_sql(
+            "SELECT id FROM reports WHERE subject_uri = $1 AND subject_did = $2 ORDER BY id DESC LIMIT 1",
+            backend,
+        ))
+        .bind(uri)
+        .bind(did)
+        .fetch_one(&self.pool)
+        .await
+        .expect("failed to fetch seeded report id");
         row.0
     }
 }
@@ -284,7 +304,7 @@ impl TestApp {
 // Signed cookie builder
 // ---------------------------------------------------------------------------
 
-fn build_signed_cookie(axum_key: &axum_extra::extract::cookie::Key, did: &str) -> String {
+fn build_signed_cookie(_axum_key: &axum_extra::extract::cookie::Key, did: &str) -> String {
     // axum_extra::extract::cookie::Key wraps cookie::Key internally.
     // We derive an identical cookie::Key from the same secret to produce a
     // compatible HMAC signature.

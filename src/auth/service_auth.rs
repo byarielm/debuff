@@ -152,11 +152,11 @@ fn verify_service_jwt<'a>(
         }
 
         // Check lxm if present.
-        if let Some(ref lxm) = payload.lxm {
-            if lxm != "com.atproto.moderation.createReport" {
-                tracing::warn!(lxm = %lxm, "service auth JWT lxm mismatch");
-                return Err(AppError::Unauthorized);
-            }
+        if let Some(ref lxm) = payload.lxm
+            && lxm != "com.atproto.moderation.createReport"
+        {
+            tracing::warn!(lxm = %lxm, "service auth JWT lxm mismatch");
+            return Err(AppError::Unauthorized);
         }
 
         // Resolve the issuer's DID document to get their signing key.
@@ -171,12 +171,12 @@ fn verify_service_jwt<'a>(
             _ => false,
         };
 
+        if !valid && !is_retry {
+            // Key may have been rotated — retry with a fresh DID resolution.
+            tracing::debug!(iss = %payload.iss, "signature failed, retrying with fresh DID doc");
+            return verify_service_jwt(token, state, true).await;
+        }
         if !valid {
-            if !is_retry {
-                // Key may have been rotated — retry with a fresh DID resolution.
-                tracing::debug!(iss = %payload.iss, "signature failed, retrying with fresh DID doc");
-                return verify_service_jwt(token, state, true).await;
-            }
             tracing::warn!(iss = %payload.iss, "service auth JWT signature verification failed");
             return Err(AppError::Unauthorized);
         }
@@ -281,19 +281,18 @@ fn verify_es256(msg: &[u8], sig_bytes: &[u8], key_bytes: &[u8]) -> bool {
     };
 
     // Try standard (low-S) signature first, then allow high-S (malleable).
-    if let Ok(sig) = P256Signature::from_bytes(sig_bytes.into()) {
-        if verifying_key.verify(msg, &sig).is_ok() {
-            return true;
-        }
+    if let Ok(sig) = P256Signature::from_bytes(sig_bytes.into())
+        && verifying_key.verify(msg, &sig).is_ok()
+    {
+        return true;
     }
 
     // Try normalizing (the p256 crate may reject high-S).
-    if let Ok(sig) = P256Signature::from_bytes(sig_bytes.into()) {
-        if let Some(normalized) = sig.normalize_s() {
-            if verifying_key.verify(msg, &normalized).is_ok() {
-                return true;
-            }
-        }
+    if let Ok(sig) = P256Signature::from_bytes(sig_bytes.into())
+        && let Some(normalized) = sig.normalize_s()
+        && verifying_key.verify(msg, &normalized).is_ok()
+    {
+        return true;
     }
 
     false
@@ -307,18 +306,17 @@ fn verify_es256k(msg: &[u8], sig_bytes: &[u8], key_bytes: &[u8]) -> bool {
         return false;
     };
 
-    if let Ok(sig) = K256Signature::from_bytes(sig_bytes.into()) {
-        if verifying_key.verify(msg, &sig).is_ok() {
-            return true;
-        }
+    if let Ok(sig) = K256Signature::from_bytes(sig_bytes.into())
+        && verifying_key.verify(msg, &sig).is_ok()
+    {
+        return true;
     }
 
-    if let Ok(sig) = K256Signature::from_bytes(sig_bytes.into()) {
-        if let Some(normalized) = sig.normalize_s() {
-            if verifying_key.verify(msg, &normalized).is_ok() {
-                return true;
-            }
-        }
+    if let Ok(sig) = K256Signature::from_bytes(sig_bytes.into())
+        && let Some(normalized) = sig.normalize_s()
+        && verifying_key.verify(msg, &normalized).is_ok()
+    {
+        return true;
     }
 
     false

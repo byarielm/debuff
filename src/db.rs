@@ -5,6 +5,41 @@ use std::path::Path;
 
 use crate::config::{DatabaseBackend, DatabaseConfig};
 
+/// Convert PostgreSQL-style placeholders ($1, $2, ...) to SQLite-style (?, ?, ...).
+/// Queries should be written with $N placeholders and converted at runtime.
+pub fn adapt_sql(sql: &str, backend: DatabaseBackend) -> String {
+    match backend {
+        DatabaseBackend::Postgres => sql.to_string(),
+        DatabaseBackend::Sqlite => {
+            // Replace $1, $2, ... with ?
+            let mut result = sql.to_string();
+            for i in (1..=50).rev() {
+                // Reverse order to handle $10 before $1
+                result = result.replace(&format!("${i}"), "?");
+            }
+            result
+        }
+    }
+}
+
+/// Helper macro to create a query with automatic placeholder conversion.
+/// Usage: sql_query!(state, "SELECT * FROM foo WHERE id = $1")
+#[macro_export]
+macro_rules! sql_query {
+    ($state:expr, $sql:expr) => {
+        sqlx::query(&$crate::db::adapt_sql($sql, $state.config.database.backend.clone()))
+    };
+}
+
+/// Helper macro to create a typed query with automatic placeholder conversion.
+/// Usage: sql_query_as!(state, (i64, String), "SELECT id, name FROM foo WHERE id = $1")
+#[macro_export]
+macro_rules! sql_query_as {
+    ($state:expr, $type:ty, $sql:expr) => {
+        sqlx::query_as::<_, $type>(&$crate::db::adapt_sql($sql, $state.config.database.backend.clone()))
+    };
+}
+
 /// Parse a database timestamp string to DateTime<Utc>.
 /// Handles RFC 3339 (our app writes), Postgres timestamptz format, and SQLite datetime() format.
 pub fn parse_dt(s: &str) -> DateTime<Utc> {
@@ -35,16 +70,16 @@ pub async fn connect(config: &DatabaseConfig) -> AnyPool {
     sqlx::any::install_default_drivers();
 
     // For SQLite, ensure the parent directory exists
-    if config.backend == DatabaseBackend::Sqlite {
-        if let Some(path) = config.url.strip_prefix("sqlite://") {
-            let path = path.split('?').next().unwrap_or(path);
-            if let Some(parent) = std::path::Path::new(path).parent() {
-                if !parent.as_os_str().is_empty() {
-                    std::fs::create_dir_all(parent).unwrap_or_else(|e| {
-                        panic!("Failed to create data directory {}: {e}", parent.display())
-                    });
-                }
-            }
+    if config.backend == DatabaseBackend::Sqlite
+        && let Some(path) = config.url.strip_prefix("sqlite://")
+    {
+        let path = path.split('?').next().unwrap_or(path);
+        if let Some(parent) = std::path::Path::new(path).parent()
+            && !parent.as_os_str().is_empty()
+        {
+            std::fs::create_dir_all(parent).unwrap_or_else(|e| {
+                panic!("Failed to create data directory {}: {e}", parent.display())
+            });
         }
     }
 

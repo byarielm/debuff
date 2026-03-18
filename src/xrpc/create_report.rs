@@ -6,6 +6,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::AppState;
 use crate::auth::ServiceAuth;
+use crate::db::adapt_sql;
 use crate::error::AppError;
 
 // ---------------------------------------------------------------------------
@@ -87,13 +88,15 @@ pub async fn create_report(
         .or(subject_did.as_deref())
         .unwrap_or("");
 
+    let backend = state.config.database.backend.clone();
     // Duplicate detection: check for an open report on the same subject
-    let existing: Option<(i64,)> = sqlx::query_as(
+    let existing: Option<(i64,)> = sqlx::query_as(&adapt_sql(
         "SELECT id FROM reports
-         WHERE (subject_uri = ? OR subject_did = ?)
+         WHERE (subject_uri = $1 OR subject_did = $2)
            AND status IN ('pending', 'in_review')
          LIMIT 1",
-    )
+        backend.clone(),
+    ))
     .bind(canonical_uri)
     .bind(canonical_uri)
     .fetch_optional(&state.db)
@@ -114,10 +117,11 @@ pub async fn create_report(
             )
         };
 
-        sqlx::query(
+        sqlx::query(&adapt_sql(
             "INSERT INTO report_notes (report_id, author, content)
-             VALUES (?, ?, ?)",
-        )
+             VALUES ($1, $2, $3)",
+            backend.clone(),
+        ))
         .bind(existing_id)
         .bind(&reported_by)
         .bind(&note_content)
@@ -126,11 +130,13 @@ pub async fn create_report(
         .map_err(|e| AppError::Internal(format!("failed to add duplicate note: {e}")))?;
 
         // Fetch the existing report to return
+        #[allow(clippy::type_complexity)]
         let row: (i64, String, String, Option<String>, Option<String>, Option<String>, String, String) =
-            sqlx::query_as(
+            sqlx::query_as(&adapt_sql(
                 "SELECT id, reason_type, reason, subject_uri, subject_cid, subject_did, reported_by, created_at
-                 FROM reports WHERE id = ?",
-            )
+                 FROM reports WHERE id = $1",
+                backend.clone(),
+            ))
             .bind(existing_id)
             .fetch_one(&state.db)
             .await
@@ -152,11 +158,12 @@ pub async fn create_report(
     }
 
     // Create a new report
-    let row: (i64, String) = sqlx::query_as(
+    let row: (i64, String) = sqlx::query_as(&adapt_sql(
         "INSERT INTO reports (subject_uri, subject_cid, subject_did, reason_type, reason, reported_by, status)
-         VALUES (?, ?, ?, ?, ?, ?, 'pending')
+         VALUES ($1, $2, $3, $4, $5, $6, 'pending')
          RETURNING id, created_at",
-    )
+        backend,
+    ))
     .bind(&subject_uri)
     .bind(&subject_cid)
     .bind(&subject_did)

@@ -8,6 +8,7 @@ use serde::{Deserialize, Serialize};
 use sha2::Sha256;
 
 use crate::AppState;
+use crate::db::adapt_sql;
 use crate::error::AppError;
 use crate::signing::UnsignedLabel;
 
@@ -129,12 +130,14 @@ pub async fn ingest(
         ));
     }
 
+    let backend = state.config.database.backend.clone();
     // Check for duplicate: open report for same subject_uri
-    let existing: Option<(i64,)> = sqlx::query_as(
+    let existing: Option<(i64,)> = sqlx::query_as(&adapt_sql(
         "SELECT id FROM reports \
-         WHERE subject_uri = ? AND status IN ('pending', 'in_progress') \
+         WHERE subject_uri = $1 AND status IN ('pending', 'in_progress') \
          LIMIT 1",
-    )
+        backend.clone(),
+    ))
     .bind(&payload.subject_uri)
     .fetch_optional(&state.db)
     .await
@@ -142,10 +145,11 @@ pub async fn ingest(
 
     let report_id = if let Some((existing_id,)) = existing {
         // Append as note to existing report
-        sqlx::query(
+        sqlx::query(&adapt_sql(
             "INSERT INTO report_notes (report_id, author, content) \
-             VALUES (?, ?, ?)",
-        )
+             VALUES ($1, $2, $3)",
+            backend.clone(),
+        ))
         .bind(existing_id)
         .bind(format!("webhook:{}", source.name))
         .bind(format!(
@@ -165,11 +169,12 @@ pub async fn ingest(
             "pending"
         };
 
-        let row: (i64,) = sqlx::query_as(
+        let row: (i64,) = sqlx::query_as(&adapt_sql(
             "INSERT INTO reports (subject_uri, subject_did, reason_type, reason, reported_by, status, priority) \
-             VALUES (?, ?, ?, ?, ?, ?, ?) \
+             VALUES ($1, $2, $3, $4, $5, $6, $7) \
              RETURNING id",
-        )
+            backend.clone(),
+        ))
         .bind(&payload.subject_uri)
         .bind(&payload.subject_did)
         .bind(&payload.reason_type)
@@ -189,7 +194,7 @@ pub async fn ingest(
         let labels_applied = apply_labels(&state, &payload).await?;
 
         if labels_applied > 0 {
-            sqlx::query("UPDATE reports SET auto_labeled = 1 WHERE id = ?")
+            sqlx::query(&adapt_sql("UPDATE reports SET auto_labeled = 1 WHERE id = $1", backend))
                 .bind(report_id)
                 .execute(&state.db)
                 .await
@@ -203,6 +208,7 @@ pub async fn ingest(
 /// Sign and insert labels, broadcasting each to the WebSocket channel.
 /// Returns the number of labels applied.
 async fn apply_labels(state: &AppState, payload: &IngestBody) -> Result<i64, AppError> {
+    let backend = state.config.database.backend.clone();
     let now = Utc::now();
     let now_str = now.to_rfc3339();
     let mut count: i64 = 0;
@@ -224,12 +230,13 @@ async fn apply_labels(state: &AppState, payload: &IngestBody) -> Result<i64, App
             .sign_label(&unsigned)
             .map_err(|e| AppError::Internal(format!("failed to sign label: {e}")))?;
 
-        let row: Option<(i64, i64)> = sqlx::query_as(
+        let row: Option<(i64, i64)> = sqlx::query_as(&adapt_sql(
             "INSERT INTO labels (src, uri, cid, val, neg, cts, exp, sig) \
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?) \
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8) \
              ON CONFLICT (src, uri, val) DO NOTHING \
              RETURNING id, seq",
-        )
+            backend.clone(),
+        ))
         .bind(&unsigned.src)
         .bind(&unsigned.uri)
         .bind(&unsigned.cid)

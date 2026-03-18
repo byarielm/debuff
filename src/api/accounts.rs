@@ -6,6 +6,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::AppState;
 use crate::auth::ModeratorAuth;
+use crate::db::adapt_sql;
 use crate::error::AppError;
 use crate::signing::UnsignedLabel;
 
@@ -73,13 +74,15 @@ pub async fn apply_action(
         .sign_label(&unsigned)
         .map_err(|e| AppError::Internal(format!("signing failed: {e}")))?;
 
-    let row: (i64, String) = sqlx::query_as(
+    let backend = state.config.database.backend.clone();
+    let row: (i64, String) = sqlx::query_as(&adapt_sql(
         "INSERT INTO labels (src, uri, val, neg, cts, sig)
-         VALUES (?, ?, ?, false, ?, ?)
+         VALUES ($1, $2, $3, false, $4, $5)
          ON CONFLICT (src, uri, val) DO UPDATE
          SET neg = false, cts = EXCLUDED.cts, sig = EXCLUDED.sig
          RETURNING seq, cts",
-    )
+        backend,
+    ))
     .bind(&state.config.labeler.did)
     .bind(&did)
     .bind(&body.action)
@@ -115,12 +118,15 @@ pub async fn get_account(
         return Err(AppError::BadRequest("invalid DID format".into()));
     }
 
-    let rows: Vec<(String, String, String, i32, String, Option<String>, Vec<u8>)> = sqlx::query_as(
+    let backend = state.config.database.backend.clone();
+    #[allow(clippy::type_complexity)]
+    let rows: Vec<(String, String, String, i32, String, Option<String>, Vec<u8>)> = sqlx::query_as(&adapt_sql(
         "SELECT src, uri, val, neg, cts, exp, sig
              FROM labels
-             WHERE uri = ?
+             WHERE uri = $1
              ORDER BY cts ASC",
-    )
+        backend,
+    ))
     .bind(&did)
     .fetch_all(&state.db)
     .await

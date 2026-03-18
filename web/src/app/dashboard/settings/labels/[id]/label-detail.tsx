@@ -1,6 +1,6 @@
 "use client"
 
-import { use, useCallback, useEffect, useState } from "react"
+import { use, useEffect, useState } from "react"
 import { useRouter } from "next/navigation"
 import { Trash2 } from "lucide-react"
 
@@ -41,17 +41,22 @@ export default function LabelDetail({
   const [deleteOpen, setDeleteOpen] = useState(false)
   const [deleting, setDeleting] = useState(false)
 
-  const load = useCallback(() => {
-    setLoading(true)
-    getLabelDefinition(defId)
-      .then(setDefinition)
-      .catch((e) => setError(e instanceof Error ? e.message : String(e)))
-      .finally(() => setLoading(false))
-  }, [defId])
-
   useEffect(() => {
-    load()
-  }, [load])
+    let cancelled = false
+    getLabelDefinition(defId)
+      .then((def) => {
+        if (!cancelled) setDefinition(def)
+      })
+      .catch((e) => {
+        if (!cancelled) setError(e instanceof Error ? e.message : String(e))
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [defId])
 
   async function handleSubmit(data: LabelDefinitionFormData) {
     await updateLabelDefinition(defId, data)

@@ -2,7 +2,7 @@ use serde::Deserialize;
 use std::io::Write;
 use std::path::PathBuf;
 
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, Default, Deserialize)]
 pub struct Config {
     #[serde(default)]
     pub server: ServerConfig,
@@ -110,15 +110,6 @@ impl Default for LabelerConfig {
     }
 }
 
-impl Default for Config {
-    fn default() -> Self {
-        Self {
-            server: ServerConfig::default(),
-            database: DatabaseConfig::default(),
-            labeler: LabelerConfig::default(),
-        }
-    }
-}
 
 impl Config {
     pub fn config_path() -> PathBuf {
@@ -175,10 +166,10 @@ pub fn update_config_file(updates: &[(&str, &str)]) -> Result<(), String> {
         }
     }
 
-    if let Some(parent) = path.parent() {
-        if !parent.as_os_str().is_empty() {
-            std::fs::create_dir_all(parent).map_err(|e| format!("Failed to create dir: {e}"))?;
-        }
+    if let Some(parent) = path.parent()
+        && !parent.as_os_str().is_empty()
+    {
+        std::fs::create_dir_all(parent).map_err(|e| format!("Failed to create dir: {e}"))?;
     }
 
     let mut file = std::fs::File::create(&path)

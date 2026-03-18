@@ -4,6 +4,7 @@ use axum_extra::extract::cookie::{Key, SignedCookieJar};
 
 use crate::AppState;
 use crate::auth::COOKIE_NAME;
+use crate::db::adapt_sql;
 use crate::error::AppError;
 
 /// Authenticated user identity extracted from signed session cookie.
@@ -62,6 +63,7 @@ impl FromRequestParts<AppState> for ModeratorAuth {
     ) -> Result<Self, Self::Rejection> {
         let session = Session::from_request_parts(parts, state).await?;
         let did = session.did().to_string();
+        let backend = state.config.database.backend.clone();
 
         let count: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM moderators")
             .fetch_one(&state.db)
@@ -75,11 +77,12 @@ impl FromRequestParts<AppState> for ModeratorAuth {
                 .await
                 .map_err(|e| AppError::Internal(format!("transaction start failed: {e}")))?;
 
-            let row: Option<(String, String)> = sqlx::query_as(
-                "INSERT INTO moderators (did, role) VALUES (?, 'admin')
+            let row: Option<(String, String)> = sqlx::query_as(&adapt_sql(
+                "INSERT INTO moderators (did, role) VALUES ($1, 'admin')
                  ON CONFLICT (did) DO NOTHING
                  RETURNING did, role",
-            )
+                backend.clone(),
+            ))
             .bind(&did)
             .fetch_optional(&mut *tx)
             .await
@@ -96,7 +99,7 @@ impl FromRequestParts<AppState> for ModeratorAuth {
         }
 
         let row: Option<(String, String)> =
-            sqlx::query_as("SELECT did, role FROM moderators WHERE did = ?")
+            sqlx::query_as(&adapt_sql("SELECT did, role FROM moderators WHERE did = $1", backend.clone()))
                 .bind(&did)
                 .fetch_optional(&state.db)
                 .await
@@ -109,8 +112,9 @@ impl FromRequestParts<AppState> for ModeratorAuth {
         let db = state.db.clone();
         let update_did = mod_did.clone();
         let now_str = crate::db::now_rfc3339();
+        let update_sql = adapt_sql("UPDATE moderators SET last_used_at = $1 WHERE did = $2", backend);
         tokio::spawn(async move {
-            let _ = sqlx::query("UPDATE moderators SET last_used_at = ? WHERE did = ?")
+            let _ = sqlx::query(&update_sql)
                 .bind(&now_str)
                 .bind(&update_did)
                 .execute(&db)

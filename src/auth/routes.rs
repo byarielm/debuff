@@ -9,6 +9,7 @@ use serde::Deserialize;
 
 use crate::AppState;
 use crate::auth::COOKIE_NAME;
+use crate::db::adapt_sql;
 use crate::error::AppError;
 
 #[derive(Deserialize)]
@@ -77,7 +78,8 @@ async fn callback(
     }
 
     // If this DID is not a moderator, redirect to /setup (likely a labeler OAuth during setup)
-    let is_moderator: Option<(i32,)> = sqlx::query_as("SELECT 1 FROM moderators WHERE did = ?")
+    let backend = state.config.database.backend.clone();
+    let is_moderator: Option<(i32,)> = sqlx::query_as(&adapt_sql("SELECT 1 FROM moderators WHERE did = $1", backend.clone()))
         .bind(did.as_ref())
         .fetch_optional(&state.db)
         .await
@@ -123,7 +125,8 @@ async fn me(
     let cookie = jar.get(COOKIE_NAME).ok_or(AppError::Unauthorized)?;
     let did = cookie.value().to_string();
 
-    let role: Option<(String,)> = sqlx::query_as("SELECT role FROM moderators WHERE did = ?")
+    let backend = state.config.database.backend.clone();
+    let role: Option<(String,)> = sqlx::query_as(&adapt_sql("SELECT role FROM moderators WHERE did = $1", backend))
         .bind(&did)
         .fetch_optional(&state.db)
         .await

@@ -4,6 +4,7 @@ use axum::http::StatusCode;
 
 use crate::AppState;
 use crate::auth::ModeratorAuth;
+use crate::db::adapt_sql;
 use crate::error::AppError;
 
 use super::types::{AddModeratorBody, ModeratorSummary};
@@ -18,10 +19,12 @@ pub(super) async fn add_moderator(
         return Err(AppError::Forbidden);
     }
 
-    let row: (String, String, String, Option<String>) = sqlx::query_as(
-        "INSERT INTO moderators (did) VALUES (?)
+    let backend = state.config.database.backend.clone();
+    let row: (String, String, String, Option<String>) = sqlx::query_as(&adapt_sql(
+        "INSERT INTO moderators (did) VALUES ($1)
              RETURNING did, role, created_at, last_used_at",
-    )
+        backend,
+    ))
     .bind(&body.did)
     .fetch_one(&state.db)
     .await
@@ -87,15 +90,22 @@ pub(super) async fn remove_moderator(
     }
 
     // Clear assignments before deleting the moderator
-    sqlx::query("UPDATE reports SET assigned_to = NULL WHERE assigned_to = ?")
-        .bind(&did)
-        .execute(&state.db)
-        .await
-        .map_err(|e| AppError::Internal(format!("failed to clear assignments: {e}")))?;
+    let backend = state.config.database.backend.clone();
+    sqlx::query(&adapt_sql(
+        "UPDATE reports SET assigned_to = NULL WHERE assigned_to = $1",
+        backend.clone(),
+    ))
+    .bind(&did)
+    .execute(&state.db)
+    .await
+    .map_err(|e| AppError::Internal(format!("failed to clear assignments: {e}")))?;
 
-    let result = sqlx::query("DELETE FROM moderators WHERE did = ?")
-        .bind(&did)
-        .execute(&state.db)
+    let result = sqlx::query(&adapt_sql(
+        "DELETE FROM moderators WHERE did = $1",
+        backend,
+    ))
+    .bind(&did)
+    .execute(&state.db)
         .await
         .map_err(|e| AppError::Internal(format!("failed to remove moderator: {e}")))?;
 

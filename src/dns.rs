@@ -9,6 +9,12 @@ pub struct NativeDnsResolver {
     resolver: TokioResolver,
 }
 
+impl Default for NativeDnsResolver {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl NativeDnsResolver {
     pub fn new() -> Self {
         Self {

@@ -5,6 +5,7 @@ use serde::{Deserialize, Serialize};
 use tracing::{info, warn};
 
 use crate::AppState;
+use crate::db::adapt_sql;
 
 // ---------------------------------------------------------------------------
 // Query parameters
@@ -95,10 +96,10 @@ pub async fn subscribe_labels(
 
 async fn handle_socket(mut socket: WebSocket, state: AppState, cursor: Option<i64>) {
     // If a cursor was provided, replay historical labels first.
-    if let Some(cursor) = cursor {
-        if let Err(()) = send_historical(&mut socket, &state, cursor).await {
-            return;
-        }
+    if let Some(cursor) = cursor
+        && send_historical(&mut socket, &state, cursor).await.is_err()
+    {
+        return;
     }
 
     // Subscribe to live label notifications.
@@ -128,6 +129,8 @@ async fn handle_socket(mut socket: WebSocket, state: AppState, cursor: Option<i6
 // ---------------------------------------------------------------------------
 
 async fn send_historical(socket: &mut WebSocket, state: &AppState, cursor: i64) -> Result<(), ()> {
+    let backend = state.config.database.backend.clone();
+    #[allow(clippy::type_complexity)]
     let rows: Vec<(
         i64,
         String,
@@ -138,12 +141,13 @@ async fn send_historical(socket: &mut WebSocket, state: &AppState, cursor: i64) 
         String,
         Option<String>,
         Vec<u8>,
-    )> = sqlx::query_as(
+    )> = sqlx::query_as(&adapt_sql(
         "SELECT seq, src, uri, cid, val, neg, cts, exp, sig
              FROM labels
-             WHERE seq > ?
+             WHERE seq > $1
              ORDER BY seq ASC",
-    )
+        backend,
+    ))
     .bind(cursor)
     .fetch_all(&state.db)
     .await
@@ -160,16 +164,16 @@ async fn send_historical(socket: &mut WebSocket, state: &AppState, cursor: i64) 
                 warn!("subscribeLabels: failed to check min seq: {e}");
             })?;
 
-        if let Some((Some(min),)) = min_seq {
-            if cursor < min {
-                let frame = encode_error_frame(
-                    "OutdatedCursor",
-                    &format!("cursor {cursor} is before the earliest available seq {min}"),
-                );
-                let _ = socket.send(Message::Binary(frame.into())).await;
-                let _ = socket.send(Message::Close(None)).await;
-                return Err(());
-            }
+        if let Some((Some(min),)) = min_seq
+            && cursor < min
+        {
+            let frame = encode_error_frame(
+                "OutdatedCursor",
+                &format!("cursor {cursor} is before the earliest available seq {min}"),
+            );
+            let _ = socket.send(Message::Binary(frame.into())).await;
+            let _ = socket.send(Message::Close(None)).await;
+            return Err(());
         }
 
         return Ok(());
@@ -202,6 +206,8 @@ async fn send_historical(socket: &mut WebSocket, state: &AppState, cursor: i64) 
 // ---------------------------------------------------------------------------
 
 async fn send_label_by_seq(socket: &mut WebSocket, state: &AppState, seq: i64) -> Result<(), ()> {
+    let backend = state.config.database.backend.clone();
+    #[allow(clippy::type_complexity)]
     let row: Option<(
         i64,
         String,
@@ -212,11 +218,12 @@ async fn send_label_by_seq(socket: &mut WebSocket, state: &AppState, seq: i64) -
         String,
         Option<String>,
         Vec<u8>,
-    )> = sqlx::query_as(
+    )> = sqlx::query_as(&adapt_sql(
         "SELECT seq, src, uri, cid, val, neg, cts, exp, sig
              FROM labels
-             WHERE seq = ?",
-    )
+             WHERE seq = $1",
+        backend,
+    ))
     .bind(seq)
     .fetch_optional(&state.db)
     .await

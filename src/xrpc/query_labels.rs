@@ -69,7 +69,7 @@ pub async fn query_labels(
     }
 
     // Clamp limit
-    let limit = params.limit.min(250).max(1) as i64;
+    let limit = params.limit.clamp(1, 250) as i64;
 
     // Parse cursor
     let cursor_seq: Option<i64> = match &params.cursor {
@@ -114,18 +114,18 @@ pub async fn query_labels(
     sql.push_str(") ");
 
     // Sources
-    if let Some(ref sources) = params.sources {
-        if !sources.is_empty() {
-            sql.push_str("AND src IN (");
-            for (i, src) in sources.iter().enumerate() {
-                if i > 0 {
-                    sql.push(',');
-                }
-                sql.push('?');
-                binds.push(BindVal::Text(src.clone()));
+    if let Some(ref sources) = params.sources
+        && !sources.is_empty()
+    {
+        sql.push_str("AND src IN (");
+        for (i, src) in sources.iter().enumerate() {
+            if i > 0 {
+                sql.push(',');
             }
-            sql.push_str(") ");
+            sql.push('?');
+            binds.push(BindVal::Text(src.clone()));
         }
+        sql.push_str(") ");
     }
 
     // Cursor

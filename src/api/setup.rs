@@ -13,6 +13,7 @@ use serde::{Deserialize, Serialize};
 use crate::AppState;
 use crate::auth::{COOKIE_NAME, ModeratorAuth};
 use crate::config::update_config_file;
+use crate::db::adapt_sql;
 use crate::error::AppError;
 use crate::signing::LabelSigner;
 
@@ -218,7 +219,7 @@ async fn set_labeler_did(
         resolve_handle_to_did(&state, &body.identifier).await?
     };
 
-    let mut config_updates: Vec<(&str, String)> = vec![("labeler.did".into(), did.clone())];
+    let mut config_updates: Vec<(&str, String)> = vec![("labeler.did", did.clone())];
 
     let signing_key_generated = if state.config.labeler.signing_key_path.is_none() {
         let signer = LabelSigner::generate();
@@ -234,7 +235,7 @@ async fn set_labeler_did(
             .map_err(|e| AppError::Internal(format!("Failed to write signing key: {e}")))?;
 
         config_updates.push((
-            "labeler.signing_key_path".into(),
+            "labeler.signing_key_path",
             "data/signing_key.pem".into(),
         ));
         true
@@ -370,7 +371,8 @@ async fn labeler_auth_confirm(
 ) -> Result<(SignedCookieJar, Json<LabelerAuthConfirmResponse>), AppError> {
     // No ModeratorAuth here — the cookie currently has the labeler's DID (not a moderator).
     // Instead, verify the restore_did is an admin moderator.
-    let role: Option<(String,)> = sqlx::query_as("SELECT role FROM moderators WHERE did = ?")
+    let backend = state.config.database.backend.clone();
+    let role: Option<(String,)> = sqlx::query_as(&adapt_sql("SELECT role FROM moderators WHERE did = $1", backend.clone()))
         .bind(&body.restore_did)
         .fetch_optional(&state.db)
         .await
@@ -382,7 +384,7 @@ async fn labeler_auth_confirm(
     }
 
     // Verify the DID has an OAuth session in the database
-    let has_session: Option<(i32,)> = sqlx::query_as("SELECT 1 FROM oauth_sessions WHERE did = ?")
+    let has_session: Option<(i32,)> = sqlx::query_as(&adapt_sql("SELECT 1 FROM oauth_sessions WHERE did = $1", backend))
         .bind(&body.did)
         .fetch_optional(&state.db)
         .await

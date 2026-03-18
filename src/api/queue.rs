@@ -6,6 +6,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::AppState;
 use crate::auth::ModeratorAuth;
+use crate::db::adapt_sql;
 use crate::error::AppError;
 
 // ---------------------------------------------------------------------------
@@ -122,30 +123,38 @@ pub async fn list_queue(
     _auth: ModeratorAuth,
     Query(params): Query<QueueListParams>,
 ) -> Result<Json<QueueListResponse>, AppError> {
-    let limit = params.limit.unwrap_or(50).min(200).max(1);
+    let limit = params.limit.unwrap_or(50).clamp(1, 200);
+    let backend = state.config.database.backend.clone();
 
-    // Build dynamic query
+    // Build dynamic query with numbered placeholders
     let mut conditions: Vec<String> = Vec::new();
+    let mut param_idx = 1;
 
     if params.cursor.is_some() {
-        conditions.push("r.id < ?".to_string());
+        conditions.push(format!("r.id < ${param_idx}"));
+        param_idx += 1;
     }
     if params.status.is_some() {
-        conditions.push("r.status = ?".to_string());
+        conditions.push(format!("r.status = ${param_idx}"));
+        param_idx += 1;
     }
     if params.reason_type.is_some() {
-        conditions.push("r.reason_type = ?".to_string());
+        conditions.push(format!("r.reason_type = ${param_idx}"));
+        param_idx += 1;
     }
     if params.priority.is_some() {
-        conditions.push("r.priority = ?".to_string());
+        conditions.push(format!("r.priority = ${param_idx}"));
+        param_idx += 1;
     }
     if let Some(ref assigned_to) = params.assigned_to {
         if assigned_to == "__unassigned__" {
             conditions.push("r.assigned_to IS NULL".to_string());
         } else {
-            conditions.push("r.assigned_to = ?".to_string());
+            conditions.push(format!("r.assigned_to = ${param_idx}"));
+            param_idx += 1;
         }
     }
+    let limit_param_idx = param_idx;
 
     let where_clause = if conditions.is_empty() {
         String::new()
@@ -156,7 +165,7 @@ pub async fn list_queue(
     // We need limit + 1 to know if there are more items
     let fetch_limit = limit + 1;
 
-    let sql = format!(
+    let sql = adapt_sql(&format!(
         "SELECT r.id, r.subject_uri, r.subject_cid, r.subject_did,
                 r.reason_type, r.reason, r.reported_by, r.status,
                 r.assigned_to, r.priority, r.auto_labeled,
@@ -165,8 +174,8 @@ pub async fn list_queue(
          FROM reports r
          {where_clause}
          ORDER BY r.priority DESC, r.id DESC
-         LIMIT ?"
-    );
+         LIMIT ${limit_param_idx}"
+    ), backend);
 
     // Build the query and bind values in order
     let mut query = sqlx::query_as::<
@@ -201,10 +210,10 @@ pub async fn list_queue(
     if let Some(ref priority) = params.priority {
         query = query.bind(*priority);
     }
-    if let Some(ref assigned_to) = params.assigned_to {
-        if assigned_to != "__unassigned__" {
-            query = query.bind(assigned_to);
-        }
+    if let Some(ref assigned_to) = params.assigned_to
+        && assigned_to != "__unassigned__"
+    {
+        query = query.bind(assigned_to);
     }
     query = query.bind(fetch_limit);
 
@@ -250,6 +259,8 @@ pub async fn get_queue_item(
     _auth: ModeratorAuth,
     Path(id): Path<i64>,
 ) -> Result<Json<QueueItemDetail>, AppError> {
+    let backend = state.config.database.backend.clone();
+    #[allow(clippy::type_complexity)]
     let row: Option<(
         i64,
         Option<String>,
@@ -264,13 +275,14 @@ pub async fn get_queue_item(
         i32,
         String,
         String,
-    )> = sqlx::query_as(
+    )> = sqlx::query_as(&adapt_sql(
         "SELECT id, subject_uri, subject_cid, subject_did,
                 reason_type, reason, reported_by, status,
                 assigned_to, priority, auto_labeled,
                 created_at, updated_at
-         FROM reports WHERE id = ?",
-    )
+         FROM reports WHERE id = $1",
+        backend.clone(),
+    ))
     .bind(id)
     .fetch_optional(&state.db)
     .await
@@ -279,11 +291,12 @@ pub async fn get_queue_item(
     let report = row.ok_or(AppError::NotFound)?;
 
     // Fetch notes
-    let note_rows: Vec<(i64, String, String, String)> = sqlx::query_as(
+    let note_rows: Vec<(i64, String, String, String)> = sqlx::query_as(&adapt_sql(
         "SELECT id, author, content, created_at
-         FROM report_notes WHERE report_id = ?
+         FROM report_notes WHERE report_id = $1
          ORDER BY created_at",
-    )
+        backend.clone(),
+    ))
     .bind(id)
     .fetch_all(&state.db)
     .await
@@ -303,7 +316,7 @@ pub async fn get_queue_item(
     let subject_key = report.1.as_deref().or(report.3.as_deref()).unwrap_or("");
 
     let label_rows: Vec<(i64, String, i32, String)> =
-        sqlx::query_as("SELECT id, val, neg, cts FROM labels WHERE uri = ? ORDER BY cts")
+        sqlx::query_as(&adapt_sql("SELECT id, val, neg, cts FROM labels WHERE uri = $1 ORDER BY cts", backend))
             .bind(subject_key)
             .fetch_all(&state.db)
             .await
@@ -352,8 +365,9 @@ pub async fn update_status(
         )));
     }
 
+    let backend = state.config.database.backend.clone();
     let now_str = crate::db::now_rfc3339();
-    let result = sqlx::query("UPDATE reports SET status = ?, updated_at = ? WHERE id = ?")
+    let result = sqlx::query(&adapt_sql("UPDATE reports SET status = $1, updated_at = $2 WHERE id = $3", backend))
         .bind(&body.status)
         .bind(&now_str)
         .bind(id)
@@ -378,9 +392,10 @@ pub async fn assign_moderator(
     Path(id): Path<i64>,
     Json(body): Json<AssignBody>,
 ) -> Result<Json<serde_json::Value>, AppError> {
+    let backend = state.config.database.backend.clone();
     // Validate that the DID belongs to a known moderator
     if let Some(ref did) = body.did {
-        let exists: Option<(String,)> = sqlx::query_as("SELECT did FROM moderators WHERE did = ?")
+        let exists: Option<(String,)> = sqlx::query_as(&adapt_sql("SELECT did FROM moderators WHERE did = $1", backend.clone()))
             .bind(did)
             .fetch_optional(&state.db)
             .await
@@ -395,7 +410,7 @@ pub async fn assign_moderator(
     }
 
     let now_str = crate::db::now_rfc3339();
-    let result = sqlx::query("UPDATE reports SET assigned_to = ?, updated_at = ? WHERE id = ?")
+    let result = sqlx::query(&adapt_sql("UPDATE reports SET assigned_to = $1, updated_at = $2 WHERE id = $3", backend))
         .bind(&body.did)
         .bind(&now_str)
         .bind(id)
@@ -420,28 +435,29 @@ pub async fn escalate(
     Path(id): Path<i64>,
     Json(body): Json<EscalateBody>,
 ) -> Result<Json<serde_json::Value>, AppError> {
+    let backend = state.config.database.backend.clone();
     let now_str = crate::db::now_rfc3339();
-    let (sql, has_assign) = if body.assigned_to.is_some() {
-        (
-            "UPDATE reports SET priority = priority + 1, assigned_to = ?, updated_at = ? WHERE id = ? RETURNING priority, assigned_to",
-            true,
+    let sql = if body.assigned_to.is_some() {
+        adapt_sql(
+            "UPDATE reports SET priority = priority + 1, assigned_to = $1, updated_at = $2 WHERE id = $3 RETURNING priority, assigned_to",
+            backend,
         )
     } else {
-        (
-            "UPDATE reports SET priority = priority + 1, updated_at = ? WHERE id = ? RETURNING priority, assigned_to",
-            false,
+        adapt_sql(
+            "UPDATE reports SET priority = priority + 1, updated_at = $1 WHERE id = $2 RETURNING priority, assigned_to",
+            backend,
         )
     };
 
-    let row: Option<(i32, Option<String>)> = if has_assign {
-        sqlx::query_as(sql)
+    let row: Option<(i32, Option<String>)> = if body.assigned_to.is_some() {
+        sqlx::query_as(&sql)
             .bind(&body.assigned_to)
             .bind(&now_str)
             .bind(id)
             .fetch_optional(&state.db)
             .await
     } else {
-        sqlx::query_as(sql)
+        sqlx::query_as(&sql)
             .bind(&now_str)
             .bind(id)
             .fetch_optional(&state.db)
@@ -469,8 +485,9 @@ pub async fn add_note(
         return Err(AppError::BadRequest("content must not be empty".into()));
     }
 
+    let backend = state.config.database.backend.clone();
     // Verify the report exists
-    let exists: Option<(i64,)> = sqlx::query_as("SELECT id FROM reports WHERE id = ?")
+    let exists: Option<(i64,)> = sqlx::query_as(&adapt_sql("SELECT id FROM reports WHERE id = $1", backend.clone()))
         .bind(report_id)
         .fetch_optional(&state.db)
         .await
@@ -480,11 +497,12 @@ pub async fn add_note(
         return Err(AppError::NotFound);
     }
 
-    let row: (i64, String) = sqlx::query_as(
+    let row: (i64, String) = sqlx::query_as(&adapt_sql(
         "INSERT INTO report_notes (report_id, author, content)
-         VALUES (?, ?, ?)
+         VALUES ($1, $2, $3)
          RETURNING id, created_at",
-    )
+        backend,
+    ))
     .bind(report_id)
     .bind(&auth.did)
     .bind(&body.content)

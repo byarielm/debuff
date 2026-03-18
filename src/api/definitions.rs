@@ -10,6 +10,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::AppState;
 use crate::auth::ModeratorAuth;
+use crate::db::adapt_sql;
 use crate::error::AppError;
 
 #[derive(Serialize)]
@@ -129,10 +130,12 @@ pub async fn get_definition(
     _auth: ModeratorAuth,
     Path(id): Path<i32>,
 ) -> Result<Json<DefinitionResponse>, AppError> {
-    let row: Option<(i32, String, String, String, String, i32, String)> = sqlx::query_as(
+    let backend = state.config.database.backend.clone();
+    let row: Option<(i32, String, String, String, String, i32, String)> = sqlx::query_as(&adapt_sql(
         "SELECT id, identifier, severity, blurs, default_setting, adult_only, created_at \
-             FROM label_definitions WHERE id = ?",
-    )
+             FROM label_definitions WHERE id = $1",
+        backend.clone(),
+    ))
     .bind(id)
     .fetch_optional(&state.db)
     .await
@@ -143,10 +146,11 @@ pub async fn get_definition(
 
     let adult_only = adult_only_int != 0;
 
-    let locale_rows: Vec<(String, String, String)> = sqlx::query_as(
+    let locale_rows: Vec<(String, String, String)> = sqlx::query_as(&adapt_sql(
         "SELECT lang, name, description FROM label_definition_locales \
-         WHERE definition_id = ? ORDER BY lang",
-    )
+         WHERE definition_id = $1 ORDER BY lang",
+        backend,
+    ))
     .bind(def_id)
     .fetch_all(&state.db)
     .await
@@ -178,6 +182,7 @@ pub async fn list_definitions(
     State(state): State<AppState>,
     _auth: ModeratorAuth,
 ) -> Result<Json<Vec<DefinitionResponse>>, AppError> {
+    let backend = state.config.database.backend.clone();
     let rows: Vec<(i32, String, String, String, String, i32, String)> = sqlx::query_as(
         "SELECT id, identifier, severity, blurs, default_setting, adult_only, created_at \
              FROM label_definitions ORDER BY id",
@@ -191,14 +196,14 @@ pub async fn list_definitions(
     let locale_rows: Vec<(i32, String, String, String)> = if definition_ids.is_empty() {
         vec![]
     } else {
-        let placeholders: Vec<&str> = definition_ids.iter().map(|_| "?").collect();
+        let placeholders: Vec<String> = (1..=definition_ids.len()).map(|i| format!("${i}")).collect();
         let in_clause = placeholders.join(", ");
-        let sql = format!(
+        let sql = adapt_sql(&format!(
             "SELECT definition_id, lang, name, description \
              FROM label_definition_locales \
              WHERE definition_id IN ({in_clause}) \
              ORDER BY definition_id, lang"
-        );
+        ), backend);
         let mut query = sqlx::query_as::<_, (i32, String, String, String)>(&sql);
         for id in &definition_ids {
             query = query.bind(id);
@@ -252,17 +257,19 @@ pub async fn create_definition(
     validate_blurs(&body.blurs)?;
     validate_default_setting(&body.default_setting)?;
 
+    let backend = state.config.database.backend.clone();
     let mut tx = state
         .db
         .begin()
         .await
         .map_err(|e| AppError::Internal(format!("transaction start failed: {e}")))?;
 
-    let row: (i32, String) = sqlx::query_as(
+    let row: (i32, String) = sqlx::query_as(&adapt_sql(
         "INSERT INTO label_definitions (identifier, severity, blurs, default_setting, adult_only) \
-         VALUES (?, ?, ?, ?, ?) \
+         VALUES ($1, $2, $3, $4, $5) \
          RETURNING id, created_at",
-    )
+        backend.clone(),
+    ))
     .bind(&body.identifier)
     .bind(&body.severity)
     .bind(&body.blurs)
@@ -271,13 +278,13 @@ pub async fn create_definition(
     .fetch_one(&mut *tx)
     .await
     .map_err(|e| {
-        if let sqlx::Error::Database(ref db_err) = e {
-            if db_err.is_unique_violation() {
-                return AppError::Conflict(format!(
-                    "definition with identifier '{}' already exists",
-                    body.identifier
-                ));
-            }
+        if let sqlx::Error::Database(ref db_err) = e
+            && db_err.is_unique_violation()
+        {
+            return AppError::Conflict(format!(
+                "definition with identifier '{}' already exists",
+                body.identifier
+            ));
         }
         AppError::Internal(format!("failed to create definition: {e}"))
     })?;
@@ -287,10 +294,11 @@ pub async fn create_definition(
 
     let mut locales = Vec::new();
     for locale in &body.locales {
-        sqlx::query(
+        sqlx::query(&adapt_sql(
             "INSERT INTO label_definition_locales (definition_id, lang, name, description) \
-             VALUES (?, ?, ?, ?)",
-        )
+             VALUES ($1, $2, $3, $4)",
+            backend.clone(),
+        ))
         .bind(def_id)
         .bind(&locale.lang)
         .bind(&locale.name)
@@ -334,11 +342,13 @@ pub async fn update_definition(
     Path(id): Path<i32>,
     Json(body): Json<UpdateDefinitionBody>,
 ) -> Result<Json<DefinitionResponse>, AppError> {
+    let backend = state.config.database.backend.clone();
     // Fetch existing definition
-    let row: Option<(i32, String, String, String, String, i32, String)> = sqlx::query_as(
+    let row: Option<(i32, String, String, String, String, i32, String)> = sqlx::query_as(&adapt_sql(
         "SELECT id, identifier, severity, blurs, default_setting, adult_only, created_at \
-             FROM label_definitions WHERE id = ?",
-    )
+             FROM label_definitions WHERE id = $1",
+        backend.clone(),
+    ))
     .bind(id)
     .fetch_optional(&state.db)
     .await
@@ -383,11 +393,12 @@ pub async fn update_definition(
         .await
         .map_err(|e| AppError::Internal(format!("transaction start failed: {e}")))?;
 
-    sqlx::query(
+    sqlx::query(&adapt_sql(
         "UPDATE label_definitions \
-         SET identifier = ?, severity = ?, blurs = ?, default_setting = ?, adult_only = ? \
-         WHERE id = ?",
-    )
+         SET identifier = $1, severity = $2, blurs = $3, default_setting = $4, adult_only = $5 \
+         WHERE id = $6",
+        backend.clone(),
+    ))
     .bind(&identifier)
     .bind(&severity)
     .bind(&blurs)
@@ -397,19 +408,19 @@ pub async fn update_definition(
     .execute(&mut *tx)
     .await
     .map_err(|e| {
-        if let sqlx::Error::Database(ref db_err) = e {
-            if db_err.is_unique_violation() {
-                return AppError::Conflict(format!(
-                    "definition with identifier '{identifier}' already exists"
-                ));
-            }
+        if let sqlx::Error::Database(ref db_err) = e
+            && db_err.is_unique_violation()
+        {
+            return AppError::Conflict(format!(
+                "definition with identifier '{identifier}' already exists"
+            ));
         }
         AppError::Internal(format!("failed to update definition: {e}"))
     })?;
 
     // Replace locales if provided
     let locales = if let Some(new_locales) = body.locales {
-        sqlx::query("DELETE FROM label_definition_locales WHERE definition_id = ?")
+        sqlx::query(&adapt_sql("DELETE FROM label_definition_locales WHERE definition_id = $1", backend.clone()))
             .bind(def_id)
             .execute(&mut *tx)
             .await
@@ -417,10 +428,11 @@ pub async fn update_definition(
 
         let mut result = Vec::new();
         for locale in &new_locales {
-            sqlx::query(
+            sqlx::query(&adapt_sql(
                 "INSERT INTO label_definition_locales (definition_id, lang, name, description) \
-                 VALUES (?, ?, ?, ?)",
-            )
+                 VALUES ($1, $2, $3, $4)",
+                backend.clone(),
+            ))
             .bind(def_id)
             .bind(&locale.lang)
             .bind(&locale.name)
@@ -438,10 +450,11 @@ pub async fn update_definition(
         result
     } else {
         // Fetch existing locales
-        let locale_rows: Vec<(String, String, String)> = sqlx::query_as(
+        let locale_rows: Vec<(String, String, String)> = sqlx::query_as(&adapt_sql(
             "SELECT lang, name, description FROM label_definition_locales \
-             WHERE definition_id = ? ORDER BY lang",
-        )
+             WHERE definition_id = $1 ORDER BY lang",
+            backend,
+        ))
         .bind(def_id)
         .fetch_all(&mut *tx)
         .await
@@ -481,8 +494,9 @@ pub async fn delete_definition(
     _auth: ModeratorAuth,
     Path(id): Path<i32>,
 ) -> Result<StatusCode, AppError> {
+    let backend = state.config.database.backend.clone();
     // Check if it exists
-    let exists: Option<(i32,)> = sqlx::query_as("SELECT id FROM label_definitions WHERE id = ?")
+    let exists: Option<(i32,)> = sqlx::query_as(&adapt_sql("SELECT id FROM label_definitions WHERE id = $1", backend.clone()))
         .bind(id)
         .fetch_optional(&state.db)
         .await
@@ -490,7 +504,7 @@ pub async fn delete_definition(
 
     exists.ok_or(AppError::NotFound)?;
 
-    sqlx::query("DELETE FROM label_definitions WHERE id = ?")
+    sqlx::query(&adapt_sql("DELETE FROM label_definitions WHERE id = $1", backend))
         .bind(id)
         .execute(&state.db)
         .await
@@ -552,6 +566,7 @@ async fn sync_service_record_inner(state: &AppState) -> Result<(), String> {
         None => serde_json::json!({}),
     };
 
+    let backend = state.config.database.backend.clone();
     // Fetch all definitions with locales from the database
     let rows: Vec<(i32, String, String, String, String, i32)> = sqlx::query_as(
         "SELECT id, identifier, severity, blurs, default_setting, adult_only \
@@ -566,14 +581,14 @@ async fn sync_service_record_inner(state: &AppState) -> Result<(), String> {
     let locale_rows: Vec<(i32, String, String, String)> = if def_ids.is_empty() {
         vec![]
     } else {
-        let placeholders: Vec<&str> = def_ids.iter().map(|_| "?").collect();
-        let sql = format!(
+        let placeholders: Vec<String> = (1..=def_ids.len()).map(|i| format!("${i}")).collect();
+        let sql = adapt_sql(&format!(
             "SELECT definition_id, lang, name, description \
              FROM label_definition_locales \
              WHERE definition_id IN ({}) \
              ORDER BY definition_id, lang",
             placeholders.join(", ")
-        );
+        ), backend);
         let mut query = sqlx::query_as::<_, (i32, String, String, String)>(&sql);
         for id in &def_ids {
             query = query.bind(id);
