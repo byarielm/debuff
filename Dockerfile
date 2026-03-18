@@ -6,7 +6,7 @@ RUN npm ci
 COPY web/ .
 RUN npm run build
 
-FROM rust:1.86 AS builder
+FROM rust:1.88 AS builder
 
 WORKDIR /app
 
