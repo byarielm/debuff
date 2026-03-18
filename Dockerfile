@@ -35,6 +35,7 @@ COPY --from=builder /app/migrations /srv/migrations
 COPY --from=frontend /app/web/out /srv/static
 
 ENV DEBUFF_STATIC_DIR=/srv/static
+ENV DATABASE_URL=sqlite:///srv/data/debuff.db?mode=rwc
 
 WORKDIR /srv
 
