@@ -1,3 +1,5 @@
+pub mod settings;
+
 use chrono::{DateTime, Utc};
 use sqlx::AnyPool;
 use sqlx::migrate::Migrator;
@@ -76,7 +78,7 @@ pub fn now_rfc3339() -> String {
 }
 
 /// Connect to the configured database and run migrations.
-pub async fn connect(config: &DatabaseConfig) -> AnyPool {
+pub async fn connect(config: &DatabaseConfig) -> Result<AnyPool, String> {
     sqlx::any::install_default_drivers();
 
     // For SQLite, ensure the parent directory exists
@@ -87,32 +89,40 @@ pub async fn connect(config: &DatabaseConfig) -> AnyPool {
         if let Some(parent) = std::path::Path::new(path).parent()
             && !parent.as_os_str().is_empty()
         {
-            std::fs::create_dir_all(parent).unwrap_or_else(|e| {
-                panic!("Failed to create data directory {}: {e}", parent.display())
-            });
+            std::fs::create_dir_all(parent).map_err(|e| {
+                format!(
+                    "Could not create SQLite data directory \"{}\": {e}\n\n\
+                     To fix this, either:\n  \
+                     1. Ensure the directory exists and is writable by the application user\n  \
+                     2. Set DATABASE_URL to point to a writable location\n  \
+                     3. Use PostgreSQL instead by setting DATABASE_URL=postgresql://...\n\n\
+                     If running in Docker, you may need to mount a volume for SQLite storage.",
+                    parent.display()
+                )
+            })?;
         }
     }
 
     let pool = AnyPool::connect(&config.url)
         .await
-        .expect("Failed to connect to database");
+        .map_err(|e| format!("Failed to connect to database: {e}"))?;
 
     // Enable foreign keys and WAL mode for SQLite
     if config.backend == DatabaseBackend::Sqlite {
         sqlx::query("PRAGMA foreign_keys = ON")
             .execute(&pool)
             .await
-            .expect("Failed to enable foreign keys");
+            .map_err(|e| format!("Failed to enable foreign keys: {e}"))?;
 
         sqlx::query("PRAGMA journal_mode = WAL")
             .execute(&pool)
             .await
-            .expect("Failed to enable WAL mode");
+            .map_err(|e| format!("Failed to enable WAL mode: {e}"))?;
 
         sqlx::query("PRAGMA busy_timeout = 5000")
             .execute(&pool)
             .await
-            .expect("Failed to set busy timeout");
+            .map_err(|e| format!("Failed to set busy timeout: {e}"))?;
     }
 
     // Run migrations from the appropriate directory
@@ -123,9 +133,12 @@ pub async fn connect(config: &DatabaseConfig) -> AnyPool {
 
     let migrator = Migrator::new(Path::new(migration_dir))
         .await
-        .unwrap_or_else(|e| panic!("Failed to load migrations from {migration_dir}: {e}"));
+        .map_err(|e| format!("Failed to load migrations from {migration_dir}: {e}"))?;
 
-    migrator.run(&pool).await.expect("Failed to run migrations");
+    migrator
+        .run(&pool)
+        .await
+        .map_err(|e| format!("Failed to run migrations: {e}"))?;
 
-    pool
+    Ok(pool)
 }

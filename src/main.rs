@@ -21,26 +21,42 @@ use atrium_oauth::{
 async fn main() {
     fmt().with_env_filter(EnvFilter::from_default_env()).init();
 
-    let config = Config::load();
-    let db = debuff::db::connect(&config.database).await;
+    let mut config = Config::load();
+    let db = match debuff::db::connect(&config.database).await {
+        Ok(pool) => pool,
+        Err(e) => {
+            eprintln!("Error: {e}");
+            std::process::exit(1);
+        }
+    };
 
-    let signer = match &config.labeler.signing_key_path {
-        Some(path) => match std::fs::read_to_string(path) {
+    // Phase 2: merge DB settings
+    let db_settings = debuff::db::settings::load_all(&db, config.database.backend.clone())
+        .await
+        .unwrap_or_else(|e| {
+            tracing::warn!("Failed to load DB settings: {e}");
+            std::collections::HashMap::new()
+        });
+    config.apply_db_settings(&db_settings);
+
+    let signer = if let Some(pem) = &config.labeler.signing_key {
+        LabelSigner::from_pem(pem).expect("Failed to parse inline signing key")
+    } else if let Some(path) = &config.labeler.signing_key_path {
+        match std::fs::read_to_string(path) {
             Ok(pem) => LabelSigner::from_pem(&pem).expect("Failed to parse signing key"),
             Err(e) => {
                 tracing::warn!(
-                    "Could not read signing key from {path}: {e} — generating an ephemeral key."
+                    "Could not read signing key from {path}: {e} — generating ephemeral key."
                 );
                 LabelSigner::generate()
             }
-        },
-        None => {
-            tracing::warn!(
-                "No SIGNING_KEY_PATH set — generating an ephemeral signing key. \
-                 Labels will not be verifiable until a persistent key is registered in the DID document."
-            );
-            LabelSigner::generate()
         }
+    } else {
+        tracing::warn!(
+            "No signing key configured — generating an ephemeral signing key. \
+             Labels will not be verifiable until a persistent key is registered in the DID document."
+        );
+        LabelSigner::generate()
     };
 
     let (label_tx, _) = broadcast::channel::<i64>(1024);
@@ -118,11 +134,19 @@ async fn main() {
         .expect("Failed to create OAuth client")
     };
 
-    if config.server.session_secret == "change-me-in-production" {
-        tracing::warn!(
-            "No SESSION_SECRET set — using an insecure default. \
-             Set SESSION_SECRET to a random string in production."
-        );
+    if config.server.session_secret == "change-me-in-production-not-secure" {
+        if config.database.backend == debuff::config::DatabaseBackend::Postgres {
+            tracing::error!(
+                "INSECURE SESSION SECRET — You are using the default session secret with a \
+                 Postgres backend, which likely indicates a production deployment. \
+                 Set DEBUFF_SESSION_SECRET to a random string of at least 64 characters."
+            );
+        } else {
+            tracing::warn!(
+                "Using the default session secret. Set DEBUFF_SESSION_SECRET to a random \
+                 string in production."
+            );
+        }
     }
 
     let cookie_key =
@@ -134,7 +158,7 @@ async fn main() {
         http,
         dns,
         label_broadcast: label_tx,
-        signer: Arc::new(signer),
+        signer: Arc::new(tokio::sync::RwLock::new(signer)),
         oauth: Arc::new(oauth_client),
         cookie_key,
         setup_labeler_did: Arc::new(tokio::sync::Mutex::new(None)),

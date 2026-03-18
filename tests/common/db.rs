@@ -28,7 +28,9 @@ pub async fn test_pool(backend: Backend, temp_dir: &std::path::Path) -> AnyPool 
         }
     };
 
-    debuff::db::connect(&config).await
+    debuff::db::connect(&config)
+        .await
+        .expect("failed to connect to test database")
 }
 
 pub async fn truncate_all(pool: &AnyPool) {
@@ -43,6 +45,7 @@ pub async fn truncate_all(pool: &AnyPool) {
         "oauth_sessions",
         "oauth_state",
         "labeler_config",
+        "settings",
     ];
 
     for table in &tables {

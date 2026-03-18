@@ -45,6 +45,7 @@ pub enum DatabaseBackend {
 pub struct LabelerConfig {
     #[serde(default = "default_labeler_did")]
     pub did: String,
+    pub signing_key: Option<String>, // NEW: inline PEM content
     pub signing_key_path: Option<String>,
     #[serde(default = "default_plc_url")]
     pub plc_url: String,
@@ -104,6 +105,7 @@ impl Default for LabelerConfig {
     fn default() -> Self {
         Self {
             did: default_labeler_did(),
+            signing_key: None,
             signing_key_path: None,
             plc_url: default_plc_url(),
         }
@@ -117,12 +119,29 @@ impl Config {
             .unwrap_or_else(|_| PathBuf::from("./config.toml"))
     }
 
-    pub fn load() -> Self {
-        let path = std::env::var("DEBUFF_CONFIG")
-            .map(PathBuf::from)
-            .unwrap_or_else(|_| PathBuf::from("./config.toml"));
-
+    /// Check if the config file path is writable (exists and writable, or parent dir is writable).
+    pub fn config_file_writable() -> bool {
+        let path = Self::config_path();
         if path.exists() {
+            // Check if file is writable
+            std::fs::OpenOptions::new().write(true).open(&path).is_ok()
+        } else if let Some(parent) = path.parent()
+            && !parent.as_os_str().is_empty()
+        {
+            // Check if parent directory exists and is writable
+            parent.exists()
+                && std::fs::metadata(parent)
+                    .map(|m| !m.permissions().readonly())
+                    .unwrap_or(false)
+        } else {
+            false
+        }
+    }
+
+    pub fn load() -> Self {
+        let path = Self::config_path();
+
+        let mut config = if path.exists() {
             let contents = std::fs::read_to_string(&path)
                 .unwrap_or_else(|e| panic!("Failed to read config file {}: {}", path.display(), e));
             toml::from_str(&contents)
@@ -133,6 +152,85 @@ impl Config {
                 path.display()
             );
             Config::default()
+        };
+
+        config.apply_env_overrides();
+        config
+    }
+
+    /// Apply database settings (Phase 2 — after DB connection).
+    /// Only fills in values that are still at their defaults.
+    pub fn apply_db_settings(&mut self, settings: &std::collections::HashMap<String, String>) {
+        if self.labeler.did == default_labeler_did() {
+            if let Some(v) = settings.get("labeler.did") {
+                self.labeler.did = v.clone();
+            }
+        }
+        if self.labeler.signing_key.is_none() {
+            if let Some(v) = settings.get("labeler.signing_key") {
+                self.labeler.signing_key = Some(v.clone());
+            }
+        }
+    }
+
+    /// Apply environment variable overrides (Phase 1 — before DB connection).
+    fn apply_env_overrides(&mut self) {
+        // Server
+        if let Ok(v) = std::env::var("DEBUFF_HOST") {
+            self.server.host = v;
+        }
+        // DEBUFF_PORT overrides PORT
+        if let Ok(v) = std::env::var("DEBUFF_PORT") {
+            if let Ok(p) = v.parse() {
+                self.server.port = p;
+            }
+        } else if let Ok(v) = std::env::var("PORT") {
+            if let Ok(p) = v.parse() {
+                self.server.port = p;
+            }
+        }
+        if let Ok(v) = std::env::var("DEBUFF_PUBLIC_URL") {
+            self.server.public_url = v;
+        }
+        if let Ok(v) = std::env::var("DEBUFF_STATIC_DIR") {
+            self.server.static_dir = v;
+        }
+        if let Ok(v) = std::env::var("DEBUFF_SESSION_SECRET") {
+            self.server.session_secret = v;
+        }
+
+        // Database — DEBUFF_DATABASE_URL overrides DATABASE_URL
+        let db_url = std::env::var("DEBUFF_DATABASE_URL")
+            .or_else(|_| std::env::var("DATABASE_URL"))
+            .ok();
+        if let Some(url) = &db_url {
+            if url.starts_with("postgres://") || url.starts_with("postgresql://") {
+                self.database.backend = DatabaseBackend::Postgres;
+            } else if url.starts_with("sqlite://") {
+                self.database.backend = DatabaseBackend::Sqlite;
+            }
+            self.database.url = url.clone();
+        }
+        if let Ok(v) = std::env::var("DEBUFF_DATABASE_BACKEND") {
+            match v.to_lowercase().as_str() {
+                "postgres" => self.database.backend = DatabaseBackend::Postgres,
+                "sqlite" => self.database.backend = DatabaseBackend::Sqlite,
+                _ => tracing::warn!("Unknown DEBUFF_DATABASE_BACKEND value: {v}"),
+            }
+        }
+
+        // Labeler
+        if let Ok(v) = std::env::var("DEBUFF_LABELER_DID") {
+            self.labeler.did = v;
+        }
+        if let Ok(v) = std::env::var("DEBUFF_LABELER_SIGNING_KEY") {
+            self.labeler.signing_key = Some(v);
+        }
+        if let Ok(v) = std::env::var("DEBUFF_LABELER_SIGNING_KEY_PATH") {
+            self.labeler.signing_key_path = Some(v);
+        }
+        if let Ok(v) = std::env::var("DEBUFF_PLC_URL") {
+            self.labeler.plc_url = v;
         }
     }
 }
@@ -177,4 +275,58 @@ pub fn update_config_file(updates: &[(&str, &str)]) -> Result<(), String> {
         .map_err(|e| format!("Failed to write {}: {e}", path.display()))?;
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serial_test::serial;
+
+    #[test]
+    #[serial]
+    fn test_database_url_env_infers_postgres() {
+        unsafe { std::env::set_var("DATABASE_URL", "postgres://localhost/debuff") };
+        let config = Config::load();
+        assert_eq!(config.database.backend, DatabaseBackend::Postgres);
+        assert_eq!(config.database.url, "postgres://localhost/debuff");
+        unsafe { std::env::remove_var("DATABASE_URL") };
+    }
+
+    #[test]
+    #[serial]
+    fn test_debuff_port_overrides_port() {
+        unsafe {
+            std::env::set_var("PORT", "4000");
+            std::env::set_var("DEBUFF_PORT", "5000");
+        }
+        let config = Config::load();
+        assert_eq!(config.server.port, 5000);
+        unsafe {
+            std::env::remove_var("PORT");
+            std::env::remove_var("DEBUFF_PORT");
+        }
+    }
+
+    #[test]
+    #[serial]
+    fn test_port_env_fallback() {
+        unsafe { std::env::set_var("PORT", "4000") };
+        let config = Config::load();
+        assert_eq!(config.server.port, 4000);
+        unsafe { std::env::remove_var("PORT") };
+    }
+
+    #[test]
+    #[serial]
+    fn test_signing_key_env() {
+        unsafe {
+            std::env::set_var(
+                "DEBUFF_LABELER_SIGNING_KEY",
+                "-----BEGIN PRIVATE KEY-----\ntest\n-----END PRIVATE KEY-----",
+            )
+        };
+        let config = Config::load();
+        assert!(config.labeler.signing_key.is_some());
+        unsafe { std::env::remove_var("DEBUFF_LABELER_SIGNING_KEY") };
+    }
 }

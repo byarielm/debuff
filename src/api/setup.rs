@@ -12,7 +12,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::AppState;
 use crate::auth::{COOKIE_NAME, ModeratorAuth};
-use crate::config::update_config_file;
+use crate::config::{Config, update_config_file};
 use crate::db::adapt_sql;
 use crate::error::AppError;
 use crate::signing::LabelSigner;
@@ -219,33 +219,60 @@ async fn set_labeler_did(
         resolve_handle_to_did(&state, &body.identifier).await?
     };
 
-    let mut config_updates: Vec<(&str, String)> = vec![("labeler.did", did.clone())];
-
-    let signing_key_generated = if state.config.labeler.signing_key_path.is_none() {
+    let signing_key_generated = if state.config.labeler.signing_key_path.is_none()
+        && state.config.labeler.signing_key.is_none()
+    {
         let signer = LabelSigner::generate();
         let pem = signer
             .to_pem()
             .map_err(|e| AppError::Internal(format!("Failed to export signing key: {e}")))?;
 
-        // Ensure data directory exists
-        std::fs::create_dir_all("data")
-            .map_err(|e| AppError::Internal(format!("Failed to create data dir: {e}")))?;
+        if Config::config_file_writable() {
+            // Write to filesystem (local dev workflow)
+            std::fs::create_dir_all("data")
+                .map_err(|e| AppError::Internal(format!("Failed to create data dir: {e}")))?;
+            std::fs::write("data/signing_key.pem", &pem)
+                .map_err(|e| AppError::Internal(format!("Failed to write signing key: {e}")))?;
 
-        std::fs::write("data/signing_key.pem", &pem)
-            .map_err(|e| AppError::Internal(format!("Failed to write signing key: {e}")))?;
+            let updates: Vec<(&str, &str)> = vec![
+                ("labeler.did", &did),
+                ("labeler.signing_key_path", "data/signing_key.pem"),
+            ];
+            update_config_file(&updates)
+                .map_err(|e| AppError::Internal(format!("Failed to update config: {e}")))?;
+        } else {
+            // Write to database (Railway/Docker workflow)
+            let backend = state.config.database.backend.clone();
+            crate::db::settings::set(&state.db, backend.clone(), "labeler.did", &did)
+                .await
+                .map_err(|e| AppError::Internal(format!("Failed to save DID to DB: {e}")))?;
+            crate::db::settings::set(&state.db, backend, "labeler.signing_key", &pem)
+                .await
+                .map_err(|e| {
+                    AppError::Internal(format!("Failed to save signing key to DB: {e}"))
+                })?;
+        }
 
-        config_updates.push(("labeler.signing_key_path", "data/signing_key.pem".into()));
+        // Swap the signer in AppState so it takes effect immediately
+        {
+            let mut signer_guard = state.signer.write().await;
+            *signer_guard = signer;
+        }
+
         true
     } else {
+        // DID still needs to be saved even if signing key already exists
+        if Config::config_file_writable() {
+            update_config_file(&[("labeler.did", &did)])
+                .map_err(|e| AppError::Internal(format!("Failed to update config: {e}")))?;
+        } else {
+            let backend = state.config.database.backend.clone();
+            crate::db::settings::set(&state.db, backend, "labeler.did", &did)
+                .await
+                .map_err(|e| AppError::Internal(format!("Failed to save DID to DB: {e}")))?;
+        }
         false
     };
-
-    let updates_refs: Vec<(&str, &str)> = config_updates
-        .iter()
-        .map(|(k, v)| (*k, v.as_str()))
-        .collect();
-    update_config_file(&updates_refs)
-        .map_err(|e| AppError::Internal(format!("Failed to update config: {e}")))?;
 
     // Store the DID in the in-memory setup mutex so other setup
     // endpoints can use it without reloading config from disk.
@@ -473,7 +500,7 @@ async fn plc_submit(
     let agent = restore_labeler_agent(&state, &did).await?;
 
     let public_url = state.config.server.public_url.clone();
-    let multibase_key = state.signer.public_key_multibase();
+    let multibase_key = state.signer.read().await.public_key_multibase();
 
     // Fetch the last PLC operation to get current rotation keys, alsoKnownAs,
     // services, and verification methods — the PLC replaces ALL fields, so we

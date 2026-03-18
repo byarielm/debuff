@@ -228,10 +228,11 @@ async fn apply_labels(state: &AppState, payload: &IngestBody) -> Result<i64, App
             exp: None,
         };
 
-        let sig = state
-            .signer
+        let signer = state.signer.read().await;
+        let sig = signer
             .sign_label(&unsigned)
             .map_err(|e| AppError::Internal(format!("failed to sign label: {e}")))?;
+        drop(signer);
 
         let row: Option<(i64, i64)> = sqlx::query_as(&adapt_sql(
             "INSERT INTO labels (src, uri, cid, val, neg, cts, exp, sig) \

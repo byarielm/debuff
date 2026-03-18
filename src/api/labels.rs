@@ -95,10 +95,11 @@ pub async fn apply_labels(
             exp: None,
         };
 
-        let sig = state
-            .signer
+        let signer = state.signer.read().await;
+        let sig = signer
             .sign_label(&unsigned)
             .map_err(|e| AppError::Internal(format!("signing failed: {e}")))?;
+        drop(signer);
 
         let row: (i64, String) = sqlx::query_as(&adapt_sql(
             "INSERT INTO labels (src, uri, cid, val, neg, cts, sig)
@@ -163,10 +164,11 @@ pub async fn negate_labels(
             exp: None,
         };
 
-        let sig = state
-            .signer
+        let signer = state.signer.read().await;
+        let sig = signer
             .sign_label(&unsigned)
             .map_err(|e| AppError::Internal(format!("signing failed: {e}")))?;
+        drop(signer);
 
         let row: (i64, String) = sqlx::query_as(&adapt_sql(
             "INSERT INTO labels (src, uri, cid, val, neg, cts, sig)

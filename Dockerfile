@@ -34,9 +34,11 @@ COPY --from=builder /app/target/release/debuff /usr/local/bin/debuff
 COPY --from=builder /app/migrations /srv/migrations
 COPY --from=frontend /app/web/out /srv/static
 
-ENV STATIC_DIR=/srv/static
+ENV DEBUFF_STATIC_DIR=/srv/static
 
 WORKDIR /srv
+
+RUN mkdir -p /srv/data && chown debuff:debuff /srv/data
 
 USER debuff
 

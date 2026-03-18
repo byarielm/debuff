@@ -84,6 +84,7 @@ impl TestApp {
             },
             labeler: LabelerConfig {
                 did: "did:plc:testlabeler".into(),
+                signing_key: None,
                 signing_key_path: None,
                 plc_url: mock_server.uri(),
             },
@@ -126,7 +127,7 @@ impl TestApp {
             http,
             dns,
             label_broadcast: label_tx,
-            signer: Arc::new(signer),
+            signer: Arc::new(tokio::sync::RwLock::new(signer)),
             oauth: Arc::new(oauth_client),
             cookie_key,
             setup_labeler_did: Arc::new(tokio::sync::Mutex::new(None)),
