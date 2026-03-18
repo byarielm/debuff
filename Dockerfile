@@ -28,20 +28,16 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
-RUN useradd -r -s /bin/false debuff
-
 COPY --from=builder /app/target/release/debuff /usr/local/bin/debuff
 COPY --from=builder /app/migrations /srv/migrations
 COPY --from=frontend /app/web/out /srv/static
+
+RUN mkdir -p /srv/data
 
 ENV DEBUFF_STATIC_DIR=/srv/static
 ENV DATABASE_URL=sqlite:///srv/data/debuff.db?mode=rwc
 
 WORKDIR /srv
-
-RUN mkdir -p /srv/data && chown debuff:debuff /srv/data
-
-USER debuff
 
 EXPOSE 3000
 
