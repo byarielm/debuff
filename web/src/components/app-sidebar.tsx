@@ -5,6 +5,7 @@ import {
   Tag,
   Webhook,
   Users,
+  Globe,
   Settings,
   LogOut,
   ChevronRight,
@@ -61,6 +62,7 @@ const navItems = [
 ] as const
 
 const settingsSubItems = [
+  { title: "Service", url: "/dashboard/settings/service", icon: Globe },
   { title: "Labels", url: "/dashboard/settings/labels", icon: Tag },
   { title: "Webhooks", url: "/dashboard/settings/webhooks", icon: Webhook },
   { title: "Moderators", url: "/dashboard/settings/moderators", icon: Users },

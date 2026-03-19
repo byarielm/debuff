@@ -25,7 +25,7 @@ pub fn routes() -> Router<AppState> {
         .route("/labeler-auth/confirm", post(labeler_auth_confirm))
         .route("/plc/request", post(plc_request))
         .route("/plc/submit", post(plc_submit))
-        .route("/record", post(create_record))
+        .route("/record", get(get_record).post(create_record))
         .route("/complete", post(complete))
         .route("/resolve-nsid", get(resolve_nsid))
 }
@@ -629,6 +629,85 @@ struct CreateRecordResponse {
     success: bool,
 }
 
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct GetRecordResponse {
+    subject_types: Vec<String>,
+    subject_collections: Vec<String>,
+    reason_types: Vec<String>,
+}
+
+async fn get_record(
+    State(state): State<AppState>,
+    admin: ModeratorAuth,
+) -> Result<Json<GetRecordResponse>, AppError> {
+    require_admin(&admin)?;
+
+    let did = get_labeler_did(&state).await?;
+
+    // Resolve PDS URL from DID document
+    let did_doc = resolve_did_document(&state.http, &state.config.labeler.plc_url, &did).await?;
+    let pds_url = find_service_endpoint(&did_doc, "#atproto_pds")
+        .ok_or_else(|| AppError::Internal("No PDS endpoint in DID document".into()))?;
+
+    // Fetch the existing service record (public, no OAuth needed)
+    let record_url = format!(
+        "{}/xrpc/com.atproto.repo.getRecord?repo={}&collection=app.bsky.labeler.service&rkey=self",
+        pds_url.trim_end_matches('/'),
+        did
+    );
+    let resp = state
+        .http
+        .get(&record_url)
+        .send()
+        .await
+        .map_err(|e| AppError::Internal(format!("Failed to fetch service record: {e}")))?;
+
+    if !resp.status().is_success() {
+        return Err(AppError::NotFound);
+    }
+
+    let body: serde_json::Value = resp
+        .json()
+        .await
+        .map_err(|e| AppError::Internal(format!("Failed to parse service record: {e}")))?;
+
+    let value = &body["value"];
+
+    let subject_types = value["subjectTypes"]
+        .as_array()
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|v| v.as_str().map(String::from))
+                .collect()
+        })
+        .unwrap_or_default();
+
+    let subject_collections = value["subjectCollections"]
+        .as_array()
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|v| v.as_str().map(String::from))
+                .collect()
+        })
+        .unwrap_or_default();
+
+    let reason_types = value["reasonTypes"]
+        .as_array()
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|v| v.as_str().map(String::from))
+                .collect()
+        })
+        .unwrap_or_default();
+
+    Ok(Json(GetRecordResponse {
+        subject_types,
+        subject_collections,
+        reason_types,
+    }))
+}
+
 async fn create_record(
     State(state): State<AppState>,
     admin: ModeratorAuth,
@@ -639,25 +718,63 @@ async fn create_record(
     let did = get_labeler_did(&state).await?;
     let agent = restore_labeler_agent(&state, &did).await?;
 
-    let now = crate::db::now_rfc3339();
+    // Try to fetch the existing record to preserve policies and createdAt
+    let did_doc = resolve_did_document(&state.http, &state.config.labeler.plc_url, &did).await?;
+    let pds_url = find_service_endpoint(&did_doc, "#atproto_pds")
+        .ok_or_else(|| AppError::Internal("No PDS endpoint in DID document".into()))?;
+
+    let record_url = format!(
+        "{}/xrpc/com.atproto.repo.getRecord?repo={}&collection=app.bsky.labeler.service&rkey=self",
+        pds_url.trim_end_matches('/'),
+        did
+    );
+
+    let existing = state
+        .http
+        .get(&record_url)
+        .send()
+        .await
+        .ok()
+        .filter(|r| r.status().is_success());
+
+    let (existing_value, swap_cid): (Option<serde_json::Value>, Option<String>) =
+        if let Some(resp) = existing {
+            if let Ok(body) = resp.json::<serde_json::Value>().await {
+                let cid = body["cid"].as_str().map(String::from);
+                (Some(body["value"].clone()), cid)
+            } else {
+                (None, None)
+            }
+        } else {
+            (None, None)
+        };
+
+    let created_at = existing_value
+        .as_ref()
+        .and_then(|v| v["createdAt"].as_str())
+        .map(String::from)
+        .unwrap_or_else(crate::db::now_rfc3339);
+
+    let policies = existing_value
+        .as_ref()
+        .and_then(|v| v["policies"].as_object().cloned())
+        .map(serde_json::Value::Object)
+        .unwrap_or_else(|| serde_json::json!({ "labelValues": [] }));
 
     let mut record = serde_json::json!({
         "$type": "app.bsky.labeler.service",
-        "createdAt": now,
-        "policies": {
-            "labelValues": []
-        }
+        "createdAt": created_at,
+        "policies": policies
     });
 
-    if !body.subject_types.is_empty() {
-        record["subjectTypes"] = serde_json::json!(body.subject_types);
-    }
-    if !body.subject_collections.is_empty() {
-        record["subjectCollections"] = serde_json::json!(body.subject_collections);
-    }
-    if !body.reason_types.is_empty() {
-        record["reasonTypes"] = serde_json::json!(body.reason_types);
-    }
+    record["subjectTypes"] = serde_json::json!(body.subject_types);
+    record["subjectCollections"] = serde_json::json!(body.subject_collections);
+    record["reasonTypes"] = serde_json::json!(body.reason_types);
+
+    let swap_record = swap_cid
+        .map(|cid| cid.parse())
+        .transpose()
+        .map_err(|e| AppError::Internal(format!("Invalid CID: {e}")))?;
 
     let record_unknown = record
         .try_into_unknown()
@@ -681,7 +798,7 @@ async fn create_record(
                     .map_err(|e| AppError::Internal(format!("Invalid rkey: {e}")))?,
                 record: record_unknown,
                 swap_commit: None,
-                swap_record: None,
+                swap_record,
                 validate: None,
             }
             .into(),

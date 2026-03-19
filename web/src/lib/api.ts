@@ -248,3 +248,21 @@ export function accountAction(
     body: JSON.stringify(body),
   })
 }
+
+// Service Record
+export interface ServiceRecord {
+  subjectTypes: string[]
+  subjectCollections: string[]
+  reasonTypes: string[]
+}
+
+export function getServiceRecord() {
+  return apiFetch<ServiceRecord>("/api/setup/record")
+}
+
+export function updateServiceRecord(body: ServiceRecord) {
+  return apiFetch<{ success: boolean }>("/api/setup/record", {
+    method: "POST",
+    body: JSON.stringify(body),
+  })
+}
