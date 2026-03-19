@@ -133,16 +133,15 @@ async fn status(State(state): State<AppState>) -> Result<Json<StatusResponse>, A
         .to_string();
 
     // If still placeholder, check the database (covers Railway/Docker after restart)
-    if did.is_empty() || did == "did:plc:placeholder" {
-        if let Ok(Some(db_did)) = crate::db::settings::get(
+    if (did.is_empty() || did == "did:plc:placeholder")
+        && let Ok(Some(db_did)) = crate::db::settings::get(
             &state.db,
             state.config.database.backend.clone(),
             "labeler.did",
         )
         .await
-        {
-            did = db_did;
-        }
+    {
+        did = db_did;
     }
 
     let labeler_did_configured = !did.is_empty() && did != "did:plc:placeholder";
