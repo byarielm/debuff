@@ -124,10 +124,27 @@ struct StatusResponse {
 }
 
 async fn status(State(state): State<AppState>) -> Result<Json<StatusResponse>, AppError> {
-    // Check in-memory mutex first (set during setup), then fall back to config
+    // Check in-memory mutex first (set during setup), then config, then database
     let mutex_did = state.setup_labeler_did.lock().await.clone();
     let did_from_config = &state.config.labeler.did;
-    let did = mutex_did.as_deref().unwrap_or(did_from_config.as_str());
+    let mut did = mutex_did
+        .as_deref()
+        .unwrap_or(did_from_config.as_str())
+        .to_string();
+
+    // If still placeholder, check the database (covers Railway/Docker after restart)
+    if did.is_empty() || did == "did:plc:placeholder" {
+        if let Ok(Some(db_did)) = crate::db::settings::get(
+            &state.db,
+            state.config.database.backend.clone(),
+            "labeler.did",
+        )
+        .await
+        {
+            did = db_did;
+        }
+    }
+
     let labeler_did_configured = !did.is_empty() && did != "did:plc:placeholder";
 
     let mut plc_configured = false;
@@ -136,7 +153,7 @@ async fn status(State(state): State<AppState>) -> Result<Json<StatusResponse>, A
     if labeler_did_configured {
         // Check PLC / DID document
         if let Ok(did_doc) =
-            resolve_did_document(&state.http, &state.config.labeler.plc_url, did).await
+            resolve_did_document(&state.http, &state.config.labeler.plc_url, &did).await
         {
             let has_labeler_service = did_doc["service"]
                 .as_array()
