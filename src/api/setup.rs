@@ -702,14 +702,14 @@ struct CompleteResponse {
 }
 
 async fn complete(
-    State(state): State<AppState>,
+    State(_state): State<AppState>,
     admin: ModeratorAuth,
 ) -> Result<Json<CompleteResponse>, AppError> {
     require_admin(&admin)?;
 
-    // Clear the setup mutex (but keep the labeler's OAuth session for ongoing service record updates)
-    let mut guard = state.setup_labeler_did.lock().await;
-    guard.take();
+    // Keep the labeler DID in the mutex — it's needed by the status endpoint
+    // to confirm setup is complete (state.config is only loaded at startup and
+    // won't reflect DIDs saved during onboarding until a restart).
 
     Ok(Json(CompleteResponse { success: true }))
 }
