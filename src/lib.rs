@@ -43,6 +43,41 @@ pub struct AppState {
     pub setup_labeler_did: Arc<Mutex<Option<String>>>,
 }
 
+impl AppState {
+    /// Resolve the labeler DID from in-memory mutex, config, or database.
+    ///
+    /// Returns `None` if no valid DID has been configured yet.
+    pub async fn labeler_did(&self) -> Option<String> {
+        // 1. In-memory mutex (set during current process's setup flow)
+        let mutex_did = self.setup_labeler_did.lock().await.clone();
+        let did = mutex_did
+            .as_deref()
+            .unwrap_or(self.config.labeler.did.as_str())
+            .to_string();
+
+        // 2. If still placeholder, check the database (covers Railway/Docker after restart)
+        let did = if did.is_empty() || did == "did:plc:placeholder" {
+            crate::db::settings::get(
+                &self.db,
+                self.config.database.backend.clone(),
+                "labeler.did",
+            )
+            .await
+            .ok()
+            .flatten()
+            .unwrap_or(did)
+        } else {
+            did
+        };
+
+        if did.is_empty() || did == "did:plc:placeholder" {
+            None
+        } else {
+            Some(did)
+        }
+    }
+}
+
 impl axum::extract::FromRef<AppState> for axum_extra::extract::cookie::Key {
     fn from_ref(state: &AppState) -> Self {
         state.cookie_key.clone()

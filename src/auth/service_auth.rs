@@ -139,7 +139,10 @@ fn verify_service_jwt<'a>(
         }
 
         // Check audience matches our labeler DID.
-        let expected_aud = &state.config.labeler.did;
+        let expected_aud = state.labeler_did().await.ok_or_else(|| {
+            tracing::warn!("service auth rejected: no labeler DID configured");
+            AppError::Unauthorized
+        })?;
         // The aud may include a fragment like #atproto_labeler, so strip it.
         let aud_did = payload.aud.split('#').next().unwrap_or(&payload.aud);
         if aud_did != expected_aud {

@@ -35,22 +35,10 @@ pub fn routes() -> Router<AppState> {
 // ---------------------------------------------------------------------------
 
 async fn get_labeler_did(state: &AppState) -> Result<String, AppError> {
-    // First check the in-memory setup mutex
-    let guard = state.setup_labeler_did.lock().await;
-    if let Some(did) = guard.clone() {
-        return Ok(did);
-    }
-    drop(guard);
-
-    // Fall back to the config file value (if it's not the placeholder)
-    let did = &state.config.labeler.did;
-    if !did.is_empty() && did != "did:plc:placeholder" {
-        return Ok(did.clone());
-    }
-
-    Err(AppError::BadRequest(
-        "No labeler DID set in setup session".into(),
-    ))
+    state
+        .labeler_did()
+        .await
+        .ok_or_else(|| AppError::BadRequest("No labeler DID set in setup session".into()))
 }
 
 async fn resolve_did_document(
@@ -124,27 +112,9 @@ struct StatusResponse {
 }
 
 async fn status(State(state): State<AppState>) -> Result<Json<StatusResponse>, AppError> {
-    // Check in-memory mutex first (set during setup), then config, then database
-    let mutex_did = state.setup_labeler_did.lock().await.clone();
-    let did_from_config = &state.config.labeler.did;
-    let mut did = mutex_did
-        .as_deref()
-        .unwrap_or(did_from_config.as_str())
-        .to_string();
-
-    // If still placeholder, check the database (covers Railway/Docker after restart)
-    if (did.is_empty() || did == "did:plc:placeholder")
-        && let Ok(Some(db_did)) = crate::db::settings::get(
-            &state.db,
-            state.config.database.backend.clone(),
-            "labeler.did",
-        )
-        .await
-    {
-        did = db_did;
-    }
-
-    let labeler_did_configured = !did.is_empty() && did != "did:plc:placeholder";
+    let did_opt = state.labeler_did().await;
+    let labeler_did_configured = did_opt.is_some();
+    let did = did_opt.unwrap_or_default();
 
     let mut plc_configured = false;
     let mut service_record_configured = false;
