@@ -95,6 +95,8 @@ pub async fn subscribe_labels(
 }
 
 async fn handle_socket(mut socket: WebSocket, state: AppState, cursor: Option<i64>) {
+    info!(?cursor, "subscribeLabels client connected");
+
     // If a cursor was provided, replay historical labels first.
     if let Some(cursor) = cursor
         && send_historical(&mut socket, &state, cursor).await.is_err()
@@ -104,6 +106,7 @@ async fn handle_socket(mut socket: WebSocket, state: AppState, cursor: Option<i6
 
     // Subscribe to live label notifications.
     let mut rx = state.label_broadcast.subscribe();
+    info!(?cursor, "subscribeLabels client subscribed for live events");
 
     loop {
         match rx.recv().await {
@@ -155,6 +158,12 @@ async fn send_historical(socket: &mut WebSocket, state: &AppState, cursor: i64) 
         warn!("subscribeLabels: failed to query historical labels: {e}");
     })?;
 
+    info!(
+        cursor,
+        count = rows.len(),
+        "subscribeLabels historical replay"
+    );
+
     // If cursor was provided but no rows found, check if cursor is too old.
     if rows.is_empty() {
         let min_seq: Option<(Option<i64>,)> = sqlx::query_as("SELECT MIN(seq) FROM labels")
@@ -194,8 +203,10 @@ async fn send_historical(socket: &mut WebSocket, state: &AppState, cursor: i64) 
         };
         let frame = encode_label_frame(&label);
         if socket.send(Message::Binary(frame.into())).await.is_err() {
+            warn!(seq = label.seq, "subscribeLabels historical send failed");
             return Err(());
         }
+        info!(seq = label.seq, "subscribeLabels historical event sent");
     }
 
     Ok(())
@@ -251,8 +262,10 @@ async fn send_label_by_seq(socket: &mut WebSocket, state: &AppState, seq: i64) -
 
     let frame = encode_label_frame(&label);
     if socket.send(Message::Binary(frame.into())).await.is_err() {
+        warn!(seq, "subscribeLabels live send failed");
         return Err(());
     }
+    info!(seq, "subscribeLabels live event sent");
 
     Ok(())
 }
