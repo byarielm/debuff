@@ -57,6 +57,7 @@ impl LabelSigner {
         let cbor_bytes = serde_ipld_dagcbor::to_vec(label)?;
         let hash = Sha256::digest(&cbor_bytes);
         let signature: Signature = self.key.sign_prehash(&hash)?;
+        let signature = signature.normalize_s().unwrap_or(signature);
         Ok(signature.to_bytes().to_vec())
     }
 
@@ -113,6 +114,7 @@ mod tests {
         let signature = Signature::from_slice(&signer.sign_label(&label).unwrap()).unwrap();
         let verifying_key = VerifyingKey::from_sec1_bytes(&signer.public_key_bytes()).unwrap();
 
+        assert!(signature.normalize_s().is_none());
         verifying_key.verify_prehash(&hash, &signature).unwrap();
     }
 }
