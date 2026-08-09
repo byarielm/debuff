@@ -234,11 +234,10 @@ async fn apply_labels(state: &AppState, payload: &IngestBody) -> Result<i64, App
             .map_err(|e| AppError::Internal(format!("failed to sign label: {e}")))?;
         drop(signer);
 
-        let row: Option<(i64, i64)> = sqlx::query_as(&adapt_sql(
+        let row: (i64,) = sqlx::query_as(&adapt_sql(
             "INSERT INTO labels (src, uri, cid, val, neg, cts, exp, sig) \
              VALUES ($1, $2, $3, $4, $5, $6, $7, $8) \
-             ON CONFLICT (src, uri, val) DO NOTHING \
-             RETURNING id, seq",
+             RETURNING seq",
             backend.clone(),
         ))
         .bind(&unsigned.src)
@@ -249,15 +248,13 @@ async fn apply_labels(state: &AppState, payload: &IngestBody) -> Result<i64, App
         .bind(&now_str)
         .bind::<Option<String>>(None)
         .bind(&sig)
-        .fetch_optional(&state.db)
+        .fetch_one(&state.db)
         .await
         .map_err(|e| AppError::Internal(format!("failed to insert label: {e}")))?;
 
-        if let Some((_id, seq)) = row {
-            // Broadcast to WebSocket subscribers
-            let _ = state.label_broadcast.send(seq);
-            count += 1;
-        }
+        // Broadcast to WebSocket subscribers
+        let _ = state.label_broadcast.send(row.0);
+        count += 1;
     }
 
     Ok(count)

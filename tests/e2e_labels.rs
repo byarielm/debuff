@@ -47,7 +47,7 @@ dual_db_test!(query_labels_by_uri, |backend| async move {
 });
 
 dual_db_test!(
-    negate_label_removes_from_active_query,
+    negate_label_emits_later_event_and_removes_from_active_query,
     |backend| async move {
         let app = common::app::TestApp::new(backend).await;
         app.seed_definition("neg-label").await;
@@ -71,6 +71,17 @@ dual_db_test!(
             0,
             "negated label should not appear in active query"
         );
+
+        let events: Vec<(i64, i32)> = sqlx::query_as(
+            "SELECT seq, neg FROM labels WHERE uri = 'at://did:plc:test/app.bsky.feed.post/neg1' ORDER BY seq",
+        )
+        .fetch_all(&app.pool)
+        .await
+        .expect("failed to fetch label events");
+        assert_eq!(events.len(), 2, "apply and negate must both be retained");
+        assert!(events[1].0 > events[0].0, "negation needs a new sequence");
+        assert_eq!(events[0].1, 0);
+        assert_eq!(events[1].1, 1);
     }
 );
 
@@ -112,7 +123,7 @@ dual_db_test!(apply_multiple_labels_at_once, |backend| async move {
     assert_eq!(labels.len(), 2);
 });
 
-dual_db_test!(upsert_on_conflict, |backend| async move {
+dual_db_test!(reapplying_label_emits_new_event, |backend| async move {
     let app = common::app::TestApp::new(backend).await;
     app.seed_definition("upsert-label").await;
 
@@ -125,11 +136,20 @@ dual_db_test!(upsert_on_conflict, |backend| async move {
     let (status, _) = app.post_authed("/api/labels", &payload).await;
     assert_eq!(status, StatusCode::CREATED);
 
-    // Should still only be 1 active label
+    // There is still only one current active label.
     let (status, body) = app.get_authed(&format!("/api/labels?uri={uri}")).await;
     assert_eq!(status, StatusCode::OK);
     let labels = body.as_array().expect("expected array");
-    assert_eq!(labels.len(), 1, "upsert should not create duplicates");
+    assert_eq!(labels.len(), 1, "only the latest event should be active");
+
+    let events: Vec<(i64,)> = sqlx::query_as(
+        "SELECT seq FROM labels WHERE uri = 'at://did:plc:test/app.bsky.feed.post/upsert' ORDER BY seq",
+    )
+    .fetch_all(&app.pool)
+    .await
+    .expect("failed to fetch label events");
+    assert_eq!(events.len(), 2, "each apply must be retained as an event");
+    assert!(events[1].0 > events[0].0, "reapply needs a new sequence");
 });
 
 dual_db_test!(no_auth_returns_401, |backend| async move {

@@ -221,7 +221,7 @@ dual_db_test!(
             .uri("/api/ingest")
             .header("content-type", "application/json")
             .header("x-webhook-signature", &signature)
-            .body(Body::from(body_bytes))
+            .body(Body::from(body_bytes.clone()))
             .unwrap();
 
         let (status, body) = common::app::send_request(&app.router, req).await;
@@ -229,5 +229,27 @@ dual_db_test!(
         assert_eq!(status, StatusCode::OK);
         // In no-review mode, response is { labels_applied: N }
         assert_eq!(body["labels_applied"], 1);
+
+        // A repeated delivery remains a distinct label event. Downstream
+        // consumers select the newest event as the current label state.
+        let repeated = Request::builder()
+            .method("POST")
+            .uri("/api/ingest")
+            .header("content-type", "application/json")
+            .header("x-webhook-signature", &signature)
+            .body(Body::from(body_bytes))
+            .unwrap();
+        let (status, body) = common::app::send_request(&app.router, repeated).await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(body["labels_applied"], 1);
+
+        let events: Vec<(i64,)> = sqlx::query_as(
+            "SELECT seq FROM labels WHERE uri = 'at://did:plc:auto/app.bsky.feed.post/1' ORDER BY seq",
+        )
+        .fetch_all(&app.pool)
+        .await
+        .expect("failed to fetch label events");
+        assert_eq!(events.len(), 2);
+        assert!(events[1].0 > events[0].0);
     }
 );

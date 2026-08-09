@@ -165,17 +165,29 @@ pub async fn list_queue(
     // We need limit + 1 to know if there are more items
     let fetch_limit = limit + 1;
 
-    let sql = adapt_sql(&format!(
-        "SELECT r.id, r.subject_uri, r.subject_cid, r.subject_did,
+    let sql = adapt_sql(
+        &format!(
+            "SELECT r.id, r.subject_uri, r.subject_cid, r.subject_did,
                 r.reason_type, r.reason, r.reported_by, r.status,
                 r.assigned_to, r.priority, r.auto_labeled,
                 r.created_at, r.updated_at,
-                COALESCE((SELECT COUNT(*) FROM labels l WHERE l.uri = COALESCE(r.subject_uri, r.subject_did)), 0) AS label_count
+                COALESCE((SELECT COUNT(*) FROM labels l
+                          WHERE l.uri = COALESCE(r.subject_uri, r.subject_did)
+                            AND l.neg = 0
+                            AND NOT EXISTS (
+                                SELECT 1 FROM labels newer
+                                WHERE newer.src = l.src
+                                  AND newer.uri = l.uri
+                                  AND newer.val = l.val
+                                  AND newer.seq > l.seq
+                            )), 0) AS label_count
          FROM reports r
          {where_clause}
          ORDER BY r.priority DESC, r.id DESC
          LIMIT ${limit_param_idx}"
-    ), backend);
+        ),
+        backend,
+    );
 
     // Build the query and bind values in order
     let mut query = sqlx::query_as::<
@@ -316,7 +328,18 @@ pub async fn get_queue_item(
     let subject_key = report.1.as_deref().or(report.3.as_deref()).unwrap_or("");
 
     let label_rows: Vec<(i64, String, i32, String)> = sqlx::query_as(&adapt_sql(
-        "SELECT id, val, neg, cts FROM labels WHERE uri = $1 ORDER BY cts",
+        "SELECT l.seq, l.val, l.neg, l.cts
+         FROM labels l
+         WHERE l.uri = $1
+           AND l.neg = 0
+           AND NOT EXISTS (
+               SELECT 1 FROM labels newer
+               WHERE newer.src = l.src
+                 AND newer.uri = l.uri
+                 AND newer.val = l.val
+                 AND newer.seq > l.seq
+           )
+         ORDER BY l.seq",
         backend,
     ))
     .bind(subject_key)

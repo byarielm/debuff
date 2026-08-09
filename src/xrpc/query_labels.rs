@@ -107,7 +107,17 @@ pub async fn query_labels(
 
     // Rebuild SQL
     let mut sql = format!(
-        "SELECT seq, src, uri, cid, val, neg, cts, exp, sig FROM labels WHERE neg = 0 AND (exp IS NULL OR exp > {now_expr}) ",
+        "SELECT l.seq, l.src, l.uri, l.cid, l.val, l.neg, l.cts, l.exp, l.sig
+         FROM labels l
+         WHERE l.neg = 0
+           AND (l.exp IS NULL OR l.exp > {now_expr})
+           AND NOT EXISTS (
+               SELECT 1 FROM labels newer
+               WHERE newer.src = l.src
+                 AND newer.uri = l.uri
+                 AND newer.val = l.val
+                 AND newer.seq > l.seq
+           ) ",
     );
 
     // URI patterns
@@ -118,10 +128,10 @@ pub async fn query_labels(
         }
         if pattern.ends_with('*') {
             let prefix = &pattern[..pattern.len() - 1];
-            sql.push_str(&format!("uri LIKE {}", placeholder()));
+            sql.push_str(&format!("l.uri LIKE {}", placeholder()));
             binds.push(BindVal::Text(format!("{prefix}%")));
         } else {
-            sql.push_str(&format!("uri = {}", placeholder()));
+            sql.push_str(&format!("l.uri = {}", placeholder()));
             binds.push(BindVal::Text(pattern.clone()));
         }
     }
@@ -131,7 +141,7 @@ pub async fn query_labels(
     if let Some(ref sources) = params.sources
         && !sources.is_empty()
     {
-        sql.push_str("AND src IN (");
+        sql.push_str("AND l.src IN (");
         for (i, src) in sources.iter().enumerate() {
             if i > 0 {
                 sql.push(',');
@@ -144,9 +154,11 @@ pub async fn query_labels(
 
     // Cursor
     if let Some(cursor_val) = cursor_seq {
-        sql.push_str(&format!("AND seq > {} ", placeholder()));
+        sql.push_str(&format!("AND l.seq > {} ", placeholder()));
         binds.push(BindVal::Int(cursor_val));
     }
+
+    sql.push_str("ORDER BY l.seq ASC ");
 
     // Limit
     sql.push_str(&format!("LIMIT {}", placeholder()));

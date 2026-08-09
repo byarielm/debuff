@@ -79,8 +79,6 @@ pub async fn apply_action(
     let row: (i64, String) = sqlx::query_as(&adapt_sql(
         "INSERT INTO labels (src, uri, val, neg, cts, sig)
          VALUES ($1, $2, $3, 0, $4, $5)
-         ON CONFLICT (src, uri, val) DO UPDATE
-         SET neg = 0, cts = EXCLUDED.cts, sig = EXCLUDED.sig
          RETURNING seq, cts",
         backend,
     ))
@@ -126,7 +124,7 @@ pub async fn get_account(
             "SELECT src, uri, val, neg, cts, exp, sig
              FROM labels
              WHERE uri = $1
-             ORDER BY cts ASC",
+             ORDER BY seq ASC",
             backend,
         ))
         .bind(&did)

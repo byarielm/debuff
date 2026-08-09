@@ -254,12 +254,76 @@ dual_db_test!(query_labels_empty_patterns, |backend| async move {
 // subscribeLabels WebSocket test
 // ===========================================================================
 
+dual_db_test!(
+    subscribe_labels_replays_historical_label,
+    |backend| async move {
+        use futures_util::StreamExt;
+        use tokio_tungstenite::connect_async;
+
+        let app = common::app::TestApp::new(backend).await;
+        app.seed_definition("ws-val").await;
+
+        let router = app.router.clone();
+        let admin_cookie = app.admin_cookie.clone();
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("failed to bind TCP listener");
+        let addr = listener.local_addr().expect("failed to get local addr");
+
+        // Spawn the server
+        tokio::spawn(async move {
+            axum::serve(listener, router).await.unwrap();
+        });
+
+        // Apply a label via the REST API first
+        let http = reqwest::Client::new();
+        let payload = common::fixtures::apply_labels(
+            "at://did:plc:test/app.bsky.feed.post/wstest",
+            &["ws-val"],
+        );
+        let resp = http
+            .post(format!("http://{addr}/api/labels"))
+            .header("cookie", &admin_cookie)
+            .json(&payload)
+            .send()
+            .await
+            .expect("failed to POST label");
+        let resp_status = resp.status();
+        let resp_body = resp.text().await.unwrap_or_default();
+        assert_eq!(
+            resp_status,
+            reqwest::StatusCode::CREATED,
+            "label POST failed: {resp_body}"
+        );
+
+        // Connect WebSocket client with cursor=0 to replay historical labels
+        let ws_url = format!("ws://{addr}/xrpc/com.atproto.label.subscribeLabels?cursor=0");
+        let (mut ws_stream, _) = connect_async(&ws_url)
+            .await
+            .expect("failed to connect WebSocket");
+
+        // Read the WebSocket message with a timeout
+        let msg = tokio::time::timeout(Duration::from_secs(5), ws_stream.next())
+            .await
+            .expect("timed out waiting for WebSocket message")
+            .expect("WebSocket stream ended unexpectedly")
+            .expect("WebSocket read error");
+
+        match msg {
+            tokio_tungstenite::tungstenite::Message::Binary(data) => {
+                assert!(!data.is_empty(), "expected non-empty binary frame");
+            }
+            other => panic!("expected binary WebSocket message, got: {other:?}"),
+        }
+    }
+);
+
 dual_db_test!(subscribe_labels_receives_live_label, |backend| async move {
     use futures_util::StreamExt;
     use tokio_tungstenite::connect_async;
 
     let app = common::app::TestApp::new(backend).await;
-    app.seed_definition("ws-val").await;
+    app.seed_definition("ws-live-val").await;
 
     let router = app.router.clone();
     let admin_cookie = app.admin_cookie.clone();
@@ -268,15 +332,28 @@ dual_db_test!(subscribe_labels_receives_live_label, |backend| async move {
         .expect("failed to bind TCP listener");
     let addr = listener.local_addr().expect("failed to get local addr");
 
-    // Spawn the server
     tokio::spawn(async move {
         axum::serve(listener, router).await.unwrap();
     });
 
-    // Apply a label via the REST API first
+    let ws_url = format!("ws://{addr}/xrpc/com.atproto.label.subscribeLabels?cursor=0");
+    let (mut ws_stream, _) = connect_async(&ws_url)
+        .await
+        .expect("failed to connect WebSocket");
+
+    tokio::time::timeout(Duration::from_secs(1), async {
+        while app.state.label_broadcast.receiver_count() == 0 {
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .expect("WebSocket handler did not subscribe to live labels");
+
     let http = reqwest::Client::new();
-    let payload =
-        common::fixtures::apply_labels("at://did:plc:test/app.bsky.feed.post/wstest", &["ws-val"]);
+    let payload = common::fixtures::apply_labels(
+        "at://did:plc:test/app.bsky.feed.post/wslive",
+        &["ws-live-val"],
+    );
     let resp = http
         .post(format!("http://{addr}/api/labels"))
         .header("cookie", &admin_cookie)
@@ -284,24 +361,11 @@ dual_db_test!(subscribe_labels_receives_live_label, |backend| async move {
         .send()
         .await
         .expect("failed to POST label");
-    let resp_status = resp.status();
-    let resp_body = resp.text().await.unwrap_or_default();
-    assert_eq!(
-        resp_status,
-        reqwest::StatusCode::CREATED,
-        "label POST failed: {resp_body}"
-    );
+    assert_eq!(resp.status(), reqwest::StatusCode::CREATED);
 
-    // Connect WebSocket client with cursor=0 to replay historical labels
-    let ws_url = format!("ws://{addr}/xrpc/com.atproto.label.subscribeLabels?cursor=0");
-    let (mut ws_stream, _) = connect_async(&ws_url)
-        .await
-        .expect("failed to connect WebSocket");
-
-    // Read the WebSocket message with a timeout
     let msg = tokio::time::timeout(Duration::from_secs(5), ws_stream.next())
         .await
-        .expect("timed out waiting for WebSocket message")
+        .expect("timed out waiting for live label event")
         .expect("WebSocket stream ended unexpectedly")
         .expect("WebSocket read error");
 

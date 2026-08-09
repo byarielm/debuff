@@ -104,8 +104,6 @@ pub async fn apply_labels(
         let row: (i64, String) = sqlx::query_as(&adapt_sql(
             "INSERT INTO labels (src, uri, cid, val, neg, cts, sig)
              VALUES ($1, $2, $3, $4, 0, $5, $6)
-             ON CONFLICT (src, uri, val) DO UPDATE
-             SET neg = 0, cid = EXCLUDED.cid, cts = EXCLUDED.cts, sig = EXCLUDED.sig
              RETURNING seq, cts",
             backend.clone(),
         ))
@@ -173,8 +171,6 @@ pub async fn negate_labels(
         let row: (i64, String) = sqlx::query_as(&adapt_sql(
             "INSERT INTO labels (src, uri, cid, val, neg, cts, sig)
              VALUES ($1, $2, NULL, $3, 1, $4, $5)
-             ON CONFLICT (src, uri, val) DO UPDATE
-             SET neg = 1, cid = NULL, cts = EXCLUDED.cts, sig = EXCLUDED.sig
              RETURNING seq, cts",
             backend.clone(),
         ))
@@ -223,10 +219,18 @@ pub async fn query_labels(
         Option<String>,
         Vec<u8>,
     )> = sqlx::query_as(&adapt_sql(
-        "SELECT src, uri, cid, val, neg, cts, exp, sig
-             FROM labels
-             WHERE uri = $1 AND neg = 0
-             ORDER BY cts",
+        "SELECT l.src, l.uri, l.cid, l.val, l.neg, l.cts, l.exp, l.sig
+             FROM labels l
+             WHERE l.uri = $1
+               AND l.neg = 0
+               AND NOT EXISTS (
+                   SELECT 1 FROM labels newer
+                   WHERE newer.src = l.src
+                     AND newer.uri = l.uri
+                     AND newer.val = l.val
+                     AND newer.seq > l.seq
+               )
+             ORDER BY l.seq",
         backend,
     ))
     .bind(&params.uri)
