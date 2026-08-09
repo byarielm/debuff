@@ -46,7 +46,7 @@ pub fn router(state: AppState) -> Router {
         }
     });
 
-    let serve_dir = ServeDir::new(&static_dir).not_found_service(spa_fallback);
+    let serve_dir = ServeDir::new(&static_dir).fallback(spa_fallback);
 
     Router::new()
         .route("/health", get(health))

@@ -1,6 +1,6 @@
 "use client"
 
-import { useParams } from "next/navigation"
+import { usePathname } from "next/navigation"
 
 import { useQueueDetail } from "@/hooks/use-queue"
 import { SiteHeader } from "@/components/site-header"
@@ -9,10 +9,9 @@ import { ActionPanel } from "@/components/action-panel"
 import { NotesThread } from "@/components/notes-thread"
 
 export default function QueueDetail() {
-  const params = useParams<{ id: string }>()
-  const id = params?.id
-  const waitingForParams = params === null
-  const reportId = id && /^\d+$/.test(id) ? Number(id) : null
+  const pathname = usePathname()
+  const id = pathname.slice(pathname.lastIndexOf("/") + 1)
+  const reportId = /^\d+$/.test(id) ? Number(id) : null
 
   const {
     report,
@@ -28,9 +27,9 @@ export default function QueueDetail() {
     addNote,
     applyLabelsToSubject,
     performAccountAction,
-  } = useQueueDetail(reportId, !waitingForParams)
+  } = useQueueDetail(reportId)
 
-  if (!waitingForParams && reportId === null) {
+  if (reportId === null) {
     return (
       <>
         <SiteHeader title="Report" backHref="/dashboard/queue" />

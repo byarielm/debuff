@@ -1,7 +1,7 @@
 "use client"
 
 import { useEffect, useState } from "react"
-import { useParams, useRouter } from "next/navigation"
+import { usePathname, useRouter } from "next/navigation"
 import { Trash2 } from "lucide-react"
 
 import { useCurrentUser } from "@/hooks/use-current-user"
@@ -26,10 +26,9 @@ import {
 } from "@/components/ui/dialog"
 
 export default function LabelDetail() {
-  const params = useParams<{ id: string }>()
-  const id = params?.id
-  const waitingForParams = params === null
-  const defId = id && /^\d+$/.test(id) ? Number(id) : null
+  const pathname = usePathname()
+  const id = pathname.slice(pathname.lastIndexOf("/") + 1)
+  const defId = /^\d+$/.test(id) ? Number(id) : null
   const router = useRouter()
   const { isAdmin } = useCurrentUser()
 
@@ -40,8 +39,6 @@ export default function LabelDetail() {
   const [deleting, setDeleting] = useState(false)
 
   useEffect(() => {
-    if (waitingForParams) return
-
     setError(null)
     setLoading(true)
     if (defId === null) {
@@ -63,7 +60,7 @@ export default function LabelDetail() {
     return () => {
       cancelled = true
     }
-  }, [defId, waitingForParams])
+  }, [defId])
 
   async function handleSubmit(data: LabelDefinitionFormData) {
     if (defId === null) return
