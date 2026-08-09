@@ -1,4 +1,4 @@
-use p256::ecdsa::{Signature, SigningKey, signature::Signer};
+use p256::ecdsa::{Signature, SigningKey, signature::hazmat::PrehashSigner};
 use serde::Serialize;
 use sha2::{Digest, Sha256};
 
@@ -56,7 +56,7 @@ impl LabelSigner {
     ) -> Result<Vec<u8>, Box<dyn std::error::Error + Send + Sync>> {
         let cbor_bytes = serde_ipld_dagcbor::to_vec(label)?;
         let hash = Sha256::digest(&cbor_bytes);
-        let signature: Signature = self.key.sign(&hash);
+        let signature: Signature = self.key.sign_prehash(&hash)?;
         Ok(signature.to_bytes().to_vec())
     }
 
@@ -86,5 +86,33 @@ impl LabelSigner {
         use p256::ecdsa::VerifyingKey;
         let verifying_key = VerifyingKey::from(&self.key);
         verifying_key.to_encoded_point(true).as_bytes().to_vec()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use p256::ecdsa::{VerifyingKey, signature::hazmat::PrehashVerifier};
+
+    #[test]
+    fn signs_the_atproto_label_prehash_directly() {
+        let signer = LabelSigner::generate();
+        let label = UnsignedLabel {
+            ver: 1,
+            src: "did:plc:testlabeler".into(),
+            uri: "did:plc:testsubject".into(),
+            cid: None,
+            val: "test-label".into(),
+            neg: false,
+            cts: "2026-08-09T00:00:00Z".into(),
+            exp: None,
+        };
+
+        let cbor = serde_ipld_dagcbor::to_vec(&label).unwrap();
+        let hash = Sha256::digest(&cbor);
+        let signature = Signature::from_slice(&signer.sign_label(&label).unwrap()).unwrap();
+        let verifying_key = VerifyingKey::from_sec1_bytes(&signer.public_key_bytes()).unwrap();
+
+        verifying_key.verify_prehash(&hash, &signature).unwrap();
     }
 }
