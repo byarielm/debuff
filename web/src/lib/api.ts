@@ -122,7 +122,7 @@ export function getLabels(
 }
 
 export function applyLabels(
-  body: { uri: string; cid?: string; val: string[] }
+  body: { uri: string; cid?: string; vals: string[] }
 ) {
   return apiFetch<Label[]>("/api/labels", {
     method: "POST",

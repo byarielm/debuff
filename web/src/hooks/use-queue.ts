@@ -228,7 +228,7 @@ export function useQueueDetail(
       const newLabels = await applyLabels({
         uri,
         cid: report.subjectCid ?? undefined,
-        val: vals,
+        vals,
       })
       setLabels((prev) => [...prev, ...newLabels])
     },

@@ -59,6 +59,7 @@ export function ActionPanel({
 }: ActionPanelProps) {
   const [selectedLabels, setSelectedLabels] = useState<string[]>([])
   const [applyingLabels, setApplyingLabels] = useState(false)
+  const [applyError, setApplyError] = useState<string | null>(null)
 
   const [dismissNote, setDismissNote] = useState("")
   const [statusLoading, setStatusLoading] = useState(false)
@@ -68,9 +69,14 @@ export function ActionPanel({
   const handleApplyLabels = useCallback(async () => {
     if (selectedLabels.length === 0) return
     setApplyingLabels(true)
+    setApplyError(null)
     try {
       await onApplyLabels(selectedLabels)
       setSelectedLabels([])
+    } catch (error) {
+      setApplyError(
+        error instanceof Error ? error.message : "Failed to apply labels.",
+      )
     } finally {
       setApplyingLabels(false)
     }
@@ -161,6 +167,11 @@ export function ActionPanel({
           >
             {applyingLabels ? "Applying..." : `Apply ${selectedLabels.length} Label${selectedLabels.length !== 1 ? "s" : ""}`}
           </Button>
+          {applyError && (
+            <p className="text-destructive text-sm" role="alert">
+              {applyError}
+            </p>
+          )}
         </CardContent>
       </Card>
 
