@@ -133,7 +133,10 @@ interface UseQueueDetailReturn {
   performAccountAction: (action: string) => Promise<void>
 }
 
-export function useQueueDetail(id: number): UseQueueDetailReturn {
+export function useQueueDetail(
+  id: number | null,
+  enabled = true,
+): UseQueueDetailReturn {
   const [report, setReport] = useState<Report | null>(null)
   const [notes, setNotes] = useState<ReportNote[]>([])
   const [labels, setLabels] = useState<Label[]>([])
@@ -143,8 +146,19 @@ export function useQueueDetail(id: number): UseQueueDetailReturn {
   const [error, setError] = useState<string | null>(null)
 
   const load = useCallback(async () => {
+    if (!enabled) return
+
     setLoading(true)
     setError(null)
+    if (id === null) {
+      setReport(null)
+      setNotes([])
+      setLabels([])
+      setDefinitions([])
+      setModerators([])
+      setLoading(false)
+      return
+    }
     try {
       const [reportData, defsData, modsData] = await Promise.all([
         getReport(id),
@@ -167,7 +181,7 @@ export function useQueueDetail(id: number): UseQueueDetailReturn {
     } finally {
       setLoading(false)
     }
-  }, [id])
+  }, [enabled, id])
 
   useEffect(() => {
     load()
@@ -175,6 +189,7 @@ export function useQueueDetail(id: number): UseQueueDetailReturn {
 
   const updateStatus = useCallback(
     async (status: string) => {
+      if (id === null) throw new Error("Invalid report URL")
       await updateReport(id, { status })
       setReport((prev) => prev ? { ...prev, status: status as Report["status"] } : prev)
     },
@@ -183,6 +198,7 @@ export function useQueueDetail(id: number): UseQueueDetailReturn {
 
   const assign = useCallback(
     async (did: string | null) => {
+      if (id === null) throw new Error("Invalid report URL")
       await assignReport(id, { did })
       setReport((prev) => prev ? { ...prev, assignedTo: did } : prev)
     },
@@ -190,12 +206,14 @@ export function useQueueDetail(id: number): UseQueueDetailReturn {
   )
 
   const doEscalate = useCallback(async () => {
+    if (id === null) throw new Error("Invalid report URL")
     await escalateReport(id)
     setReport((prev) => prev ? { ...prev, priority: prev.priority + 1 } : prev)
   }, [id])
 
   const addNote = useCallback(
     async (content: string) => {
+      if (id === null) throw new Error("Invalid report URL")
       const note = await addReportNote(id, { content })
       setNotes((prev) => [...prev, note])
     },

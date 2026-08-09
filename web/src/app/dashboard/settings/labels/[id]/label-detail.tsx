@@ -1,7 +1,7 @@
 "use client"
 
-import { use, useEffect, useState } from "react"
-import { useRouter } from "next/navigation"
+import { useEffect, useState } from "react"
+import { useParams, useRouter } from "next/navigation"
 import { Trash2 } from "lucide-react"
 
 import { useCurrentUser } from "@/hooks/use-current-user"
@@ -25,13 +25,11 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 
-export default function LabelDetail({
-  params,
-}: {
-  params: Promise<{ id: string }>
-}) {
-  const { id } = use(params)
-  const defId = Number(id)
+export default function LabelDetail() {
+  const params = useParams<{ id: string }>()
+  const id = params?.id
+  const waitingForParams = params === null
+  const defId = id && /^\d+$/.test(id) ? Number(id) : null
   const router = useRouter()
   const { isAdmin } = useCurrentUser()
 
@@ -42,6 +40,15 @@ export default function LabelDetail({
   const [deleting, setDeleting] = useState(false)
 
   useEffect(() => {
+    if (waitingForParams) return
+
+    setError(null)
+    setLoading(true)
+    if (defId === null) {
+      setError("Invalid label definition URL.")
+      setLoading(false)
+      return
+    }
     let cancelled = false
     getLabelDefinition(defId)
       .then((def) => {
@@ -56,14 +63,16 @@ export default function LabelDetail({
     return () => {
       cancelled = true
     }
-  }, [defId])
+  }, [defId, waitingForParams])
 
   async function handleSubmit(data: LabelDefinitionFormData) {
+    if (defId === null) return
     await updateLabelDefinition(defId, data)
     router.push("/dashboard/settings/labels")
   }
 
   async function handleDelete() {
+    if (defId === null) return
     setDeleting(true)
     try {
       await deleteLabelDefinition(defId)

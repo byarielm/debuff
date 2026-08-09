@@ -6,10 +6,6 @@ export async function generateStaticParams() {
   return [{ id: "_" }]
 }
 
-export default function LabelDetailPage({
-  params,
-}: {
-  params: Promise<{ id: string }>
-}) {
-  return <LabelDetail params={params} />
+export default function LabelDetailPage() {
+  return <LabelDetail />
 }

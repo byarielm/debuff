@@ -1,6 +1,6 @@
 "use client"
 
-import { use } from "react"
+import { useParams } from "next/navigation"
 
 import { useQueueDetail } from "@/hooks/use-queue"
 import { SiteHeader } from "@/components/site-header"
@@ -8,13 +8,11 @@ import { ReportDetail } from "@/components/report-detail"
 import { ActionPanel } from "@/components/action-panel"
 import { NotesThread } from "@/components/notes-thread"
 
-export default function QueueDetail({
-  params,
-}: {
-  params: Promise<{ id: string }>
-}) {
-  const { id } = use(params)
-  const reportId = Number(id)
+export default function QueueDetail() {
+  const params = useParams<{ id: string }>()
+  const id = params?.id
+  const waitingForParams = params === null
+  const reportId = id && /^\d+$/.test(id) ? Number(id) : null
 
   const {
     report,
@@ -30,7 +28,18 @@ export default function QueueDetail({
     addNote,
     applyLabelsToSubject,
     performAccountAction,
-  } = useQueueDetail(reportId)
+  } = useQueueDetail(reportId, !waitingForParams)
+
+  if (!waitingForParams && reportId === null) {
+    return (
+      <>
+        <SiteHeader title="Report" backHref="/dashboard/queue" />
+        <div className="flex flex-1 items-center justify-center p-6">
+          <p className="text-destructive text-sm">Invalid report URL.</p>
+        </div>
+      </>
+    )
+  }
 
   if (loading) {
     return (

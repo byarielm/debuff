@@ -6,10 +6,6 @@ export async function generateStaticParams() {
   return [{ id: "_" }]
 }
 
-export default function QueueDetailPage({
-  params,
-}: {
-  params: Promise<{ id: string }>
-}) {
-  return <QueueDetail params={params} />
+export default function QueueDetailPage() {
+  return <QueueDetail />
 }
