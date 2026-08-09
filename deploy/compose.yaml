@@ -1,0 +1,15 @@
+services:
+  debuff:
+    image: ${DEBUFF_IMAGE:?Set DEBUFF_IMAGE in .env}
+    container_name: neatopause
+    restart: unless-stopped
+    env_file:
+      - .env
+    ports:
+      # Tailscale Serve is the only ingress in this phase.
+      - "127.0.0.1:${DEBUFF_PORT:-3000}:3000"
+    volumes:
+      # Both paths must survive container recreation. Onboarding stores the
+      # generated signing key in data and its reference in config.toml.
+      - ${NEATOPAUSE_STATE_DIR:?Set NEATOPAUSE_STATE_DIR in .env}/data:/srv/data
+      - ${NEATOPAUSE_STATE_DIR}/config:/srv/config
